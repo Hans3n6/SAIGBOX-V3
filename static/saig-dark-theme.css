@@ -1,0 +1,137 @@
+/* SAIG Dark Theme - Based on SAIG Screenshot */
+:root {
+    /* Dark Theme Colors */
+    --dark-sidebar: #2a2d34;
+    --dark-sidebar-hover: #3a3d44;
+    --dark-selected: #1e3a5f;
+    --dark-main: #3a3f4b;
+    --dark-card: #4a5568;
+    --dark-input: #525866;
+    --dark-border: #5a5f6b;
+    
+    /* SAIG Green Colors */
+    --saig-green-bright: #a8e6a3;
+    --saig-green-primary: #7fc97f;
+    --saig-green-dark: #6db56d;
+    --saig-badge-green: #7fc97f;
+    
+    /* Text Colors */
+    --text-primary: #ffffff;
+    --text-secondary: #a0aec0;
+    --text-muted: #718096;
+    
+    /* Accent Colors */
+    --accent-red: #fc8181;
+    --accent-blue: #1e3a5f;
+    
+    /* Gradients */
+    --saig-gradient: linear-gradient(135deg, #a8e6a3 0%, #7fc97f 100%);
+}
+
+/* Dark Theme Styles */
+body.dark-theme {
+    background-color: var(--dark-main);
+    color: var(--text-primary);
+}
+
+.sidebar {
+    background-color: var(--dark-sidebar);
+    color: var(--text-primary);
+}
+
+.sidebar-item {
+    color: var(--text-secondary);
+    padding: 0.75rem 1.5rem;
+    display: flex;
+    align-items: center;
+    transition: all 0.2s;
+}
+
+.sidebar-item:hover {
+    background-color: var(--dark-sidebar-hover);
+    color: var(--text-primary);
+}
+
+.sidebar-item.active {
+    background-color: var(--dark-selected);
+    color: var(--text-primary);
+    border-left: 3px solid var(--saig-green-primary);
+}
+
+.badge-green {
+    background-color: var(--saig-badge-green);
+    color: white;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.saig-header {
+    background: var(--saig-gradient);
+    color: white;
+    padding: 1rem;
+    border-radius: 0.5rem 0.5rem 0 0;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.saig-icon {
+    width: 2rem;
+    height: 2rem;
+    background-color: var(--saig-green-bright);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+}
+
+.content-card {
+    background-color: var(--dark-card);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    color: var(--text-primary);
+}
+
+.input-dark {
+    background-color: var(--dark-input);
+    border: 1px solid var(--dark-border);
+    color: var(--text-primary);
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+}
+
+.input-dark:focus {
+    outline: none;
+    border-color: var(--saig-green-primary);
+    box-shadow: 0 0 0 3px rgba(127, 201, 127, 0.1);
+}
+
+.btn-logout {
+    background-color: var(--accent-red);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    font-weight: 600;
+    transition: opacity 0.2s;
+}
+
+.btn-logout:hover {
+    opacity: 0.9;
+}
+
+.btn-primary {
+    background: var(--saig-gradient);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    font-weight: 600;
+    transition: opacity 0.2s;
+}
+
+.btn-primary:hover {
+    opacity: 0.9;
+}

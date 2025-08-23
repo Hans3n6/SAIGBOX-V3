@@ -1,0 +1,153 @@
+/* SAIGBOX Brand Colors - SAIG Green Theme */
+:root {
+    /* Primary SAIG Green Palette */
+    --saig-primary: #7fc97f;
+    --saig-primary-hover: #6db56d;
+    --saig-primary-dark: #5fa65f;
+    --saig-primary-light: #8fd68f;
+    
+    /* Extended Green Palette */
+    --saig-50: #f0fdf4;
+    --saig-100: #dcfce7;
+    --saig-200: #bbf7d0;
+    --saig-300: #86efac;
+    --saig-400: #4ade80;
+    --saig-500: #7fc97f;  /* Primary brand color */
+    --saig-600: #6db56d;
+    --saig-700: #15803d;
+    --saig-800: #166534;
+    --saig-900: #14532d;
+    
+    /* Gradient Colors */
+    --saig-gradient-start: #86efac;
+    --saig-gradient-mid: #7fc97f;
+    --saig-gradient-end: #22c55e;
+    
+    /* Text Colors */
+    --saig-text-primary: #166534;
+    --saig-text-secondary: #15803d;
+    --saig-text-light: #7fc97f;
+    
+    /* Background Colors */
+    --saig-bg-light: rgba(127, 201, 127, 0.1);
+    --saig-bg-medium: rgba(127, 201, 127, 0.2);
+    --saig-bg-hover: rgba(127, 201, 127, 0.3);
+    
+    /* Border Colors */
+    --saig-border: #86efac;
+    --saig-border-dark: #6db56d;
+    
+    /* Status Colors */
+    --saig-success: #22c55e;
+    --saig-warning: #eab308;
+    --saig-error: #ef4444;
+    --saig-info: #3b82f6;
+}
+
+/* Utility Classes */
+.saig-bg-primary {
+    background-color: var(--saig-primary);
+}
+
+.saig-bg-gradient {
+    background: linear-gradient(135deg, var(--saig-gradient-start) 0%, var(--saig-gradient-mid) 50%, var(--saig-gradient-end) 100%);
+}
+
+.saig-text-primary {
+    color: var(--saig-primary);
+}
+
+.saig-border {
+    border-color: var(--saig-border);
+}
+
+.saig-hover:hover {
+    background-color: var(--saig-bg-hover);
+}
+
+/* Component Styles */
+.saig-button {
+    background-color: var(--saig-primary);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    transition: background-color 0.2s;
+}
+
+.saig-button:hover {
+    background-color: var(--saig-primary-hover);
+}
+
+.saig-badge {
+    background-color: var(--saig-bg-medium);
+    color: var(--saig-text-primary);
+    padding: 0.25rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.saig-alert {
+    background-color: var(--saig-bg-light);
+    border-left: 4px solid var(--saig-primary);
+    padding: 1rem;
+    border-radius: 0.375rem;
+}
+
+/* Loading Animation for SAIG */
+.saig-typing-dots {
+    display: inline-block;
+    position: relative;
+    width: 64px;
+    height: 16px;
+}
+
+.saig-typing-dots span {
+    position: absolute;
+    top: 50%;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--saig-primary);
+    animation: saig-typing 1.4s infinite ease-in-out;
+}
+
+.saig-typing-dots span:nth-child(1) { 
+    left: 8px; 
+    animation-delay: -0.32s; 
+}
+
+.saig-typing-dots span:nth-child(2) { 
+    left: 20px; 
+    animation-delay: -0.16s; 
+}
+
+.saig-typing-dots span:nth-child(3) { 
+    left: 32px; 
+}
+
+@keyframes saig-typing {
+    0%, 80%, 100% { 
+        transform: translateY(0) scale(0.8); 
+        opacity: 0.5; 
+    }
+    40% { 
+        transform: translateY(-4px) scale(1); 
+        opacity: 1; 
+    }
+}
+
+/* Spinner */
+.saig-spinner {
+    border: 3px solid #f3f4f6;
+    border-top: 3px solid var(--saig-primary);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: saig-spin 1s linear infinite;
+}
+
+@keyframes saig-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}

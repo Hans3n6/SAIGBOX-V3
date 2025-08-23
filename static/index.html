@@ -1,0 +1,1561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAIGBOX V3 - Email Management Platform</title>
+    <link rel="icon" type="image/svg+xml" href="/static/saigbox-favicon.svg">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/saig-colors.css">
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #7fc97f 0%, #6db56d 100%);
+        }
+        .chat-container {
+            transition: all 0.3s ease;
+        }
+        .loader {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid #7fc97f;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .email-item:hover {
+            background-color: #f9fafb;
+            transition: background-color 0.2s;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Main Container -->
+    <div class="flex h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 text-white" style="background-color: #7fc97f;">
+            <div class="p-6">
+                <div class="flex items-center space-x-3">
+                    <img src="/static/saigbox-logo.svg" alt="SAIGBOX" class="w-10 h-10" style="filter: brightness(0) invert(1);">
+                    <h1 class="text-2xl font-bold text-white">SAIGBOX</h1>
+                </div>
+            </div>
+            
+            <nav class="mt-6">
+                <a href="#" onclick="switchView('saig')" class="nav-item flex items-center px-6 py-3 transition-colors" style="hover:background-color: #6db56d;" onmouseover="this.style.backgroundColor='#6db56d'" onmouseout="this.style.backgroundColor='transparent'">
+                    <i class="fas fa-leaf w-5"></i>
+                    <span class="ml-3">SAIG</span>
+                    <span class="ml-auto text-xs rounded-full px-2 py-1 text-white" style="background-color: #7fc97f;">AI</span>
+                </a>
+                <a href="#" onclick="switchView('inbox')" class="nav-item flex items-center px-6 py-3 transition-colors" onmouseover="this.style.backgroundColor='#6db56d'" onmouseout="this.style.backgroundColor='transparent'">
+                    <i class="fas fa-inbox w-5"></i>
+                    <span class="ml-3">Inbox</span>
+                </a>
+                <a href="#" onclick="switchView('actions')" class="nav-item flex items-center px-6 py-3 transition-colors" onmouseover="this.style.backgroundColor='#6db56d'" onmouseout="this.style.backgroundColor='transparent'">
+                    <i class="fas fa-tasks w-5"></i>
+                    <span class="ml-3">Action Items</span>
+                    <span id="action-count" class="ml-auto bg-blue-500 text-xs rounded-full px-2 py-1">0</span>
+                </a>
+                <a href="#" onclick="switchView('huddles')" class="nav-item flex items-center px-6 py-3 transition-colors" onmouseover="this.style.backgroundColor='#6db56d'" onmouseout="this.style.backgroundColor='transparent'">
+                    <i class="fas fa-users w-5"></i>
+                    <span class="ml-3">Huddles</span>
+                </a>
+                <a href="#" onclick="switchView('trash')" class="nav-item flex items-center px-6 py-3 transition-colors" onmouseover="this.style.backgroundColor='#6db56d'" onmouseout="this.style.backgroundColor='transparent'">
+                    <i class="fas fa-trash w-5"></i>
+                    <span class="ml-3">Trash</span>
+                </a>
+            </nav>
+            
+            <div class="absolute bottom-0 w-64 p-6">
+                <button onclick="logout()" class="w-full text-white py-2 px-4 rounded transition-colors" style="background-color: #6db56d;" onmouseover="this.style.backgroundColor='#5fa65f'" onmouseout="this.style.backgroundColor='#6db56d'">
+                    <i class="fas fa-sign-out-alt mr-2"></i>Logout
+                </button>
+            </div>
+        </div>
+        
+        <!-- Main Content Area -->
+        <div class="flex-1 flex flex-col">
+            <!-- Top Bar -->
+            <div class="bg-white shadow-sm border-b">
+                <div class="flex items-center justify-between px-6 py-4">
+                    <div class="flex items-center space-x-4">
+                        <h2 id="view-title" class="text-xl font-semibold text-gray-900">Inbox</h2>
+                        <button onclick="syncEmails()" class="text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="flex items-center space-x-4">
+                        <div class="relative">
+                            <input type="text" id="search-input" placeholder="Search emails..." 
+                                   class="pl-10 pr-4 py-2 border rounded-lg focus:outline-none" style="border-color: #e5e7eb;" onfocus="this.style.borderColor='#7fc97f'" onblur="this.style.borderColor='#e5e7eb'">
+                            <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+                        </div>
+                        <button onclick="showComposeModal()" class="gradient-bg text-white px-4 py-2 rounded-lg hover:opacity-90 transition">
+                            <i class="fas fa-pen mr-2"></i>Compose
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Content Views -->
+            <div class="flex-1 overflow-hidden">
+                <!-- Inbox View -->
+                <div id="inbox-view" class="h-full flex">
+                    <!-- Email List -->
+                    <div class="w-1/3 border-r overflow-y-auto">
+                        <div id="email-list" class="divide-y">
+                            <!-- Emails will be loaded here -->
+                        </div>
+                        <div id="email-loader" class="hidden p-4 text-center">
+                            <div class="loader mx-auto"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Email Detail -->
+                    <div class="flex-1 overflow-y-auto">
+                        <div id="email-detail" class="p-6">
+                            <div class="text-center text-gray-500 mt-20">
+                                <i class="fas fa-envelope-open text-6xl mb-4 text-gray-300"></i>
+                                <p>Select an email to view</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Action Items View -->
+                <div id="actions-view" class="hidden h-full p-6 overflow-y-auto">
+                    <div class="max-w-4xl mx-auto">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-lg font-semibold">Action Items</h3>
+                            <button onclick="showCreateActionModal()" class="gradient-bg text-white px-4 py-2 rounded-lg hover:opacity-90">
+                                <i class="fas fa-plus mr-2"></i>New Action
+                            </button>
+                        </div>
+                        
+                        <div id="action-list" class="space-y-4">
+                            <!-- Action items will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Huddles View -->
+                <div id="huddles-view" class="hidden h-full p-6 overflow-y-auto">
+                    <div class="max-w-4xl mx-auto">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-lg font-semibold">Huddles</h3>
+                            <button onclick="showCreateHuddleModal()" class="gradient-bg text-white px-4 py-2 rounded-lg hover:opacity-90">
+                                <i class="fas fa-plus mr-2"></i>New Huddle
+                            </button>
+                        </div>
+                        
+                        <div id="huddle-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Huddles will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Trash View -->
+                <div id="trash-view" class="hidden h-full p-6 overflow-y-auto">
+                    <div class="max-w-4xl mx-auto">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-lg font-semibold">Trash</h3>
+                            <button onclick="emptyTrash()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600">
+                                <i class="fas fa-trash-alt mr-2"></i>Empty Trash
+                            </button>
+                        </div>
+                        
+                        <div id="trash-list" class="space-y-2">
+                            <!-- Trashed emails will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- SAIG Full View -->
+                <div id="saig-view" class="hidden h-full overflow-y-auto">
+                    <div class="h-full flex flex-col">
+                        <!-- SAIG Header -->
+                        <div class="gradient-bg text-white p-6">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-12 h-12 bg-white bg-opacity-30 rounded-full flex items-center justify-center">
+                                    <i class="fas fa-leaf text-2xl"></i>
+                                </div>
+                                <div>
+                                    <h2 class="text-2xl font-bold">SAIG</h2>
+                                    <p class="text-sm opacity-90">Your AI-powered email intelligence assistant</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- SAIG Chat Area -->
+                        <div class="flex-1 overflow-y-auto p-6 bg-gray-50" id="saig-main-messages">
+                            <div class="max-w-3xl mx-auto space-y-4">
+                                <div class="bg-white rounded-lg p-4 shadow">
+                                    <p class="text-gray-700">Hello! I'm SAIG, your email assistant. I can help you with:</p>
+                                    <ul class="mt-3 space-y-2 text-sm text-gray-600">
+                                        <li class="flex items-start"><i class="fas fa-check-circle mt-0.5 mr-2" style="color: #7fc97f;"></i>Summarizing long email threads</li>
+                                        <li class="flex items-start"><i class="fas fa-check-circle mt-0.5 mr-2" style="color: #7fc97f;"></i>Drafting professional responses</li>
+                                        <li class="flex items-start"><i class="fas fa-check-circle mt-0.5 mr-2" style="color: #7fc97f;"></i>Finding important information in your inbox</li>
+                                        <li class="flex items-start"><i class="fas fa-check-circle mt-0.5 mr-2" style="color: #7fc97f;"></i>Managing action items and priorities</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- SAIG Input Area -->
+                        <div class="border-t p-6 bg-white">
+                            <div class="max-w-3xl mx-auto">
+                                <div class="flex space-x-3">
+                                    <input type="text" id="saig-main-input" 
+                                           placeholder="Ask me anything about your emails..." 
+                                           class="flex-1 px-4 py-3 border rounded-lg focus:outline-none" style="border-color: #e5e7eb;" onfocus="this.style.borderColor='#7fc97f'" onblur="this.style.borderColor='#e5e7eb'"
+                                           onkeypress="if(event.key==='Enter') sendSaigMessage()">
+                                    <button onclick="sendSaigMessage()" class="gradient-bg text-white px-6 py-3 rounded-lg hover:opacity-90 transition">
+                                        <i class="fas fa-paper-plane mr-2"></i>Send
+                                    </button>
+                                </div>
+                                <div class="mt-3 flex space-x-2">
+                                    <button onclick="askSaig('Summarize unread emails')" class="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-full transition">Summarize unread</button>
+                                    <button onclick="askSaig('What needs my attention?')" class="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-full transition">What's urgent?</button>
+                                    <button onclick="askSaig('Show action items')" class="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-full transition">Action items</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- SAIG Chat -->
+    <div id="saig-chat" class="fixed bottom-4 right-4 z-50">
+        <!-- Chat Toggle Button -->
+        <button id="chat-toggle" onclick="toggleChat()" 
+                class="text-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg hover:opacity-90 transition"
+                style="background-color: #7fc97f;">
+            <i class="fas fa-leaf text-xl" style="color: white;"></i>
+        </button>
+        
+        <!-- Chat Container -->
+        <div id="chat-container" class="hidden absolute bottom-16 right-0 w-96 bg-white rounded-lg shadow-2xl chat-container">
+            <div class="text-white p-4 rounded-t-lg flex justify-between items-center" style="background: linear-gradient(135deg, #7fc97f 0%, #6db56d 100%);">
+                <div class="flex items-center space-x-2">
+                    <div class="w-8 h-8 rounded-full flex items-center justify-center" style="background-color: rgba(255,255,255,0.3);">
+                        <i class="fas fa-leaf text-sm"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold">SAIG</h3>
+                    </div>
+                </div>
+                <button onclick="toggleChat()" class="text-white hover:opacity-80">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div id="chat-messages" class="h-96 overflow-y-auto p-4 space-y-3">
+                <div class="bg-gray-100 rounded-lg p-3 max-w-[80%]">
+                    <p class="text-sm">Hi! I'm SAIG, your email assistant. How can I help you today?</p>
+                </div>
+            </div>
+            
+            <div class="p-4 border-t">
+                <div class="flex space-x-2">
+                    <input type="text" id="chat-input" placeholder="Type your message..." 
+                           class="flex-1 px-3 py-2 border rounded-lg focus:outline-none"
+                           style="border-color: #e5e7eb;"
+                           onfocus="this.style.borderColor='#7fc97f'"
+                           onblur="this.style.borderColor='#e5e7eb'"
+                           onkeypress="if(event.key==='Enter') sendMessage()">
+                    <button onclick="sendMessage()" class="text-white px-4 py-2 rounded-lg hover:opacity-90" style="background-color: #7fc97f;">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modals -->
+    <!-- Create Action Modal -->
+    <div id="action-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold">Create Action Item</h3>
+                <button onclick="closeActionModal()" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+                    <input type="text" id="action-title" required 
+                           class="w-full px-3 py-2 border rounded-lg focus:outline-none" 
+                           style="border-color: #e5e7eb;" 
+                           onfocus="this.style.borderColor='#7fc97f'" 
+                           onblur="this.style.borderColor='#e5e7eb'"
+                           placeholder="Enter action item title">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea id="action-description" rows="3" 
+                              class="w-full px-3 py-2 border rounded-lg focus:outline-none" 
+                              style="border-color: #e5e7eb;" 
+                              onfocus="this.style.borderColor='#7fc97f'" 
+                              onblur="this.style.borderColor='#e5e7eb'"
+                              placeholder="Add a description..."></textarea>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                        <select id="action-priority" 
+                                class="w-full px-3 py-2 border rounded-lg focus:outline-none" 
+                                style="border-color: #e5e7eb;" 
+                                onfocus="this.style.borderColor='#7fc97f'" 
+                                onblur="this.style.borderColor='#e5e7eb'">
+                            <option value="1">High</option>
+                            <option value="2" selected>Medium</option>
+                            <option value="3">Low</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+                        <input type="date" id="action-due-date" 
+                               class="w-full px-3 py-2 border rounded-lg focus:outline-none" 
+                               style="border-color: #e5e7eb;" 
+                               onfocus="this.style.borderColor='#7fc97f'" 
+                               onblur="this.style.borderColor='#e5e7eb'">
+                    </div>
+                </div>
+                
+                <div id="action-email-link" class="hidden bg-gray-50 p-3 rounded-lg">
+                    <p class="text-sm text-gray-600">
+                        <i class="fas fa-link mr-1"></i>
+                        Linked to email: <span id="linked-email-subject" class="font-medium"></span>
+                    </p>
+                </div>
+            </div>
+            
+            <div class="flex justify-end space-x-3 mt-6">
+                <button onclick="closeActionModal()" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Cancel
+                </button>
+                <button onclick="saveActionItem()" class="gradient-bg text-white px-4 py-2 rounded-lg hover:opacity-90">
+                    <i class="fas fa-plus mr-2"></i>Create Action
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Create Huddle Modal -->
+    <div id="huddle-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold">Create New Huddle</h3>
+                <button onclick="closeHuddleModal()" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Huddle Name *</label>
+                    <input type="text" id="huddle-name" required 
+                           class="w-full px-3 py-2 border rounded-lg focus:outline-none" 
+                           style="border-color: #e5e7eb;" 
+                           onfocus="this.style.borderColor='#7fc97f'" 
+                           onblur="this.style.borderColor='#e5e7eb'"
+                           placeholder="Enter huddle name">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea id="huddle-description" rows="3" 
+                              class="w-full px-3 py-2 border rounded-lg focus:outline-none" 
+                              style="border-color: #e5e7eb;" 
+                              onfocus="this.style.borderColor='#7fc97f'" 
+                              onblur="this.style.borderColor='#e5e7eb'"
+                              placeholder="What is this huddle about?"></textarea>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Add Members (email addresses)</label>
+                    <div class="space-y-2">
+                        <div class="flex space-x-2">
+                            <input type="email" id="huddle-member-input" 
+                                   class="flex-1 px-3 py-2 border rounded-lg focus:outline-none" 
+                                   style="border-color: #e5e7eb;" 
+                                   onfocus="this.style.borderColor='#7fc97f'" 
+                                   onblur="this.style.borderColor='#e5e7eb'"
+                                   placeholder="Enter email address"
+                                   onkeypress="if(event.key==='Enter') { event.preventDefault(); addHuddleMember(); }">
+                            <button onclick="addHuddleMember()" 
+                                    class="px-3 py-2 rounded-lg" 
+                                    style="background-color: #7fc97f; color: white;" 
+                                    onmouseover="this.style.opacity='0.9'" 
+                                    onmouseout="this.style.opacity='1'">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                        <div id="huddle-members-list" class="space-y-1 max-h-32 overflow-y-auto">
+                            <!-- Members will be listed here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flex justify-end space-x-3 mt-6">
+                <button onclick="closeHuddleModal()" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Cancel
+                </button>
+                <button onclick="saveHuddle()" class="gradient-bg text-white px-4 py-2 rounded-lg hover:opacity-90">
+                    <i class="fas fa-users mr-2"></i>Create Huddle
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Compose Email Modal -->
+    <div id="compose-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg w-full max-w-2xl p-6">
+            <h3 class="text-lg font-semibold mb-4">Compose Email</h3>
+            <form onsubmit="sendEmail(event)">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">To:</label>
+                    <input type="email" id="compose-to" required class="w-full px-3 py-2 border rounded-lg focus:outline-none" style="border-color: #e5e7eb;" onfocus="this.style.borderColor='#7fc97f'" onblur="this.style.borderColor='#e5e7eb'">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">Subject:</label>
+                    <input type="text" id="compose-subject" required class="w-full px-3 py-2 border rounded-lg focus:outline-none" style="border-color: #e5e7eb;" onfocus="this.style.borderColor='#7fc97f'" onblur="this.style.borderColor='#e5e7eb'">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">Message:</label>
+                    <textarea id="compose-body" rows="8" required class="w-full px-3 py-2 border rounded-lg focus:outline-none" style="border-color: #e5e7eb;" onfocus="this.style.borderColor='#7fc97f'" onblur="this.style.borderColor='#e5e7eb'"></textarea>
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button type="button" onclick="closeComposeModal()" class="px-4 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
+                    <button type="submit" class="gradient-bg text-white px-4 py-2 rounded-lg hover:opacity-90">Send</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        // Global variables
+        let authToken = '';
+        let currentView = 'inbox';
+        let selectedEmailId = null;
+        let emails = [];
+        let currentPage = 1;
+        let isLoading = false;
+        let hasMoreEmails = true;
+        let totalEmailsLoaded = 0;
+        let syncQueue = [];
+        let isSyncing = false;
+        
+        // Notification System
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            const bgColor = type === 'success' ? '#7fc97f' : type === 'error' ? '#ef4444' : '#3b82f6';
+            
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background-color: ${bgColor};
+                color: white;
+                padding: 12px 24px;
+                border-radius: 8px;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                z-index: 9999;
+                animation: slideIn 0.3s ease-out;
+            `;
+            
+            notification.innerHTML = `
+                <div style="display: flex; align-items: center;">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}" style="margin-right: 8px;"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.animation = 'slideOut 0.3s ease-in';
+                setTimeout(() => notification.remove(), 300);
+            }, 3000);
+        }
+        
+        // Add animation styles
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOut {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check for token in URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            
+            if (token) {
+                authToken = token;
+                localStorage.setItem('authToken', token);
+                window.history.replaceState({}, document.title, '/');
+                init();
+            } else {
+                authToken = localStorage.getItem('authToken');
+                if (authToken) {
+                    init();
+                } else {
+                    window.location.href = '/auth/login';
+                }
+            }
+        });
+        
+        function init() {
+            loadEmails();
+            setupEventListeners();
+            setupInfiniteScroll();
+            startAutoSync();
+        }
+        
+        function setupEventListeners() {
+            document.getElementById('search-input').addEventListener('input', debounce(searchEmails, 500));
+        }
+        
+        function setupInfiniteScroll() {
+            const emailList = document.getElementById('email-list');
+            if (!emailList) return;
+            
+            const container = emailList.parentElement;
+            container.addEventListener('scroll', () => {
+                const scrollTop = container.scrollTop;
+                const scrollHeight = container.scrollHeight;
+                const clientHeight = container.clientHeight;
+                
+                // Check if we're near the bottom (within 200px)
+                if (scrollHeight - scrollTop <= clientHeight + 200) {
+                    // Count visible emails
+                    const visibleEmails = Math.floor((scrollTop + clientHeight) / 80); // Assuming ~80px per email
+                    
+                    // Check if we need to load more emails
+                    if (visibleEmails > emails.length - 10 && !isLoading && hasMoreEmails) {
+                        checkAndLoadMoreEmails();
+                    }
+                }
+            });
+        }
+        
+        async function checkAndLoadMoreEmails() {
+            // Check current email count in database
+            const dbEmailCount = emails.length;
+            const neededEmails = dbEmailCount + 50;
+            
+            // If we have less than needed emails in DB, sync more from Gmail
+            if (totalEmailsLoaded < neededEmails) {
+                queueEmailSync(50);
+            } else {
+                // Load next page from database
+                loadMoreEmailsFromDB();
+            }
+        }
+        
+        function queueEmailSync(count) {
+            syncQueue.push(count);
+            processeSyncQueue();
+        }
+        
+        async function processeSyncQueue() {
+            if (isSyncing || syncQueue.length === 0) return;
+            
+            isSyncing = true;
+            const batchSize = syncQueue.shift();
+            
+            try {
+                const response = await fetch(`/api/emails/sync?max_results=${batchSize}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    totalEmailsLoaded += result.emails_synced;
+                    
+                    // Load the newly synced emails
+                    await loadMoreEmailsFromDB();
+                }
+            } catch (error) {
+                console.error('Sync error:', error);
+            } finally {
+                isSyncing = false;
+                // Process next item in queue if any
+                if (syncQueue.length > 0) {
+                    setTimeout(() => processeSyncQueue(), 1000);
+                }
+            }
+        }
+        
+        async function loadMoreEmailsFromDB() {
+            if (isLoading) return;
+            
+            isLoading = true;
+            showLoader('email-loader');
+            
+            try {
+                currentPage++;
+                const response = await fetch(`/api/emails?page=${currentPage}&limit=50`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    if (data.emails.length > 0) {
+                        emails = [...emails, ...data.emails];
+                        appendEmailsToList(data.emails);
+                    } else {
+                        hasMoreEmails = false;
+                    }
+                    
+                    if (!data.has_next) {
+                        hasMoreEmails = false;
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading more emails:', error);
+            } finally {
+                isLoading = false;
+                hideLoader('email-loader');
+            }
+        }
+        
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+        
+        async function loadEmails(page = 1) {
+            try {
+                showLoader('email-loader');
+                const response = await fetch(`/api/emails?page=${page}&limit=50`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (!response.ok) throw new Error('Failed to load emails');
+                
+                const data = await response.json();
+                emails = data.emails;
+                currentPage = page;
+                totalEmailsLoaded = data.total || emails.length;
+                hasMoreEmails = data.has_next;
+                
+                renderEmailList(emails);
+                updateUnreadCount();
+                hideLoader('email-loader');
+            } catch (error) {
+                console.error('Error loading emails:', error);
+                hideLoader('email-loader');
+            }
+        }
+        
+        function appendEmailsToList(newEmails) {
+            const listEl = document.getElementById('email-list');
+            
+            newEmails.forEach(email => {
+                const emailEl = document.createElement('div');
+                emailEl.onclick = () => selectEmail(email.id);
+                emailEl.className = `email-item p-4 cursor-pointer ${!email.is_read ? 'bg-blue-50' : ''}`;
+                emailEl.innerHTML = `
+                    <div class="flex justify-between items-start mb-1">
+                        <span class="font-medium text-sm ${!email.is_read ? 'font-semibold' : ''}">${email.sender_name || email.sender}</span>
+                        <span class="text-xs text-gray-500">${formatDate(email.received_at)}</span>
+                    </div>
+                    <div class="text-sm font-medium mb-1">${email.subject || '(No subject)'}</div>
+                    <div class="text-xs text-gray-600 truncate">${email.snippet || ''}</div>
+                    <div class="flex items-center mt-2 space-x-2">
+                        ${email.is_starred ? '<i class="fas fa-star text-yellow-500 text-xs"></i>' : ''}
+                        ${email.has_attachments ? '<i class="fas fa-paperclip text-gray-400 text-xs"></i>' : ''}
+                    </div>
+                `;
+                listEl.appendChild(emailEl);
+            });
+        }
+        
+        function renderEmailList(emailList) {
+            const listEl = document.getElementById('email-list');
+            
+            if (emailList.length === 0) {
+                listEl.innerHTML = '<div class="p-4 text-center text-gray-500">No emails found</div>';
+                return;
+            }
+            
+            listEl.innerHTML = emailList.map(email => `
+                <div onclick="selectEmail('${email.id}')" class="email-item p-4 cursor-pointer ${!email.is_read ? 'bg-blue-50' : ''}">
+                    <div class="flex justify-between items-start mb-1">
+                        <span class="font-medium text-sm ${!email.is_read ? 'font-semibold' : ''}">${email.sender_name || email.sender}</span>
+                        <span class="text-xs text-gray-500">${formatDate(email.received_at)}</span>
+                    </div>
+                    <div class="text-sm font-medium mb-1">${email.subject || '(No subject)'}</div>
+                    <div class="text-xs text-gray-600 truncate">${email.snippet || ''}</div>
+                    <div class="flex items-center mt-2 space-x-2">
+                        ${email.is_starred ? '<i class="fas fa-star text-yellow-500 text-xs"></i>' : ''}
+                        ${email.has_attachments ? '<i class="fas fa-paperclip text-gray-400 text-xs"></i>' : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        async function selectEmail(emailId) {
+            selectedEmailId = emailId;
+            const email = emails.find(e => e.id === emailId);
+            
+            if (!email) return;
+            
+            // Mark as read if unread
+            if (!email.is_read) {
+                await markAsRead(emailId);
+                email.is_read = true;
+                renderEmailList(emails);
+                updateUnreadCount();
+            }
+            
+            // Display email detail
+            const detailEl = document.getElementById('email-detail');
+            detailEl.innerHTML = `
+                <div class="fade-in">
+                    <div class="mb-6">
+                        <div class="flex justify-between items-start mb-4">
+                            <h2 class="text-xl font-semibold">${email.subject || '(No subject)'}</h2>
+                            <div class="flex space-x-2">
+                                <button onclick="toggleStar('${emailId}')" class="text-gray-500 hover:text-yellow-500">
+                                    <i class="fas fa-star ${email.is_starred ? 'text-yellow-500' : ''}"></i>
+                                </button>
+                                <button onclick="deleteEmail('${emailId}')" class="text-gray-500 hover:text-red-500">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="text-sm text-gray-600 mb-4">
+                            <div class="mb-1"><strong>From:</strong> ${email.sender}</div>
+                            <div class="mb-1"><strong>Date:</strong> ${formatDate(email.received_at)}</div>
+                            ${email.recipients ? `<div><strong>To:</strong> ${email.recipients.join(', ')}</div>` : ''}
+                        </div>
+                    </div>
+                    <div class="prose max-w-none">
+                        ${email.body_html || `<p>${email.body_text || email.snippet}</p>`}
+                    </div>
+                    <div class="mt-6 flex space-x-3">
+                        <button onclick="showReplyModal('${emailId}')" class="gradient-bg text-white px-4 py-2 rounded-lg hover:opacity-90">
+                            <i class="fas fa-reply mr-2"></i>Reply
+                        </button>
+                        <button onclick="createActionFromEmail('${emailId}')" class="px-4 py-2 rounded-lg hover:opacity-90" style="border: 1px solid #7fc97f; color: #7fc97f; background-color: rgba(127, 201, 127, 0.1);">
+                            <i class="fas fa-tasks mr-2"></i>Create Action
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+        
+        async function markAsRead(emailId) {
+            try {
+                await fetch(`/api/emails/${emailId}/read`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+            } catch (error) {
+                console.error('Error marking as read:', error);
+            }
+        }
+        
+        async function toggleStar(emailId) {
+            try {
+                const response = await fetch(`/api/emails/${emailId}/star`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    const email = emails.find(e => e.id === emailId);
+                    if (email) {
+                        email.is_starred = result.is_starred;
+                        renderEmailList(emails);
+                        if (selectedEmailId === emailId) {
+                            selectEmail(emailId);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error toggling star:', error);
+            }
+        }
+        
+        async function deleteEmail(emailId) {
+            if (!confirm('Move this email to trash?')) return;
+            
+            try {
+                const response = await fetch(`/api/emails/${emailId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    emails = emails.filter(e => e.id !== emailId);
+                    renderEmailList(emails);
+                    document.getElementById('email-detail').innerHTML = `
+                        <div class="text-center text-gray-500 mt-20">
+                            <i class="fas fa-envelope-open text-6xl mb-4 text-gray-300"></i>
+                            <p>Select an email to view</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error deleting email:', error);
+            }
+        }
+        
+        async function syncEmails() {
+            try {
+                const syncBtn = document.querySelector('.fa-sync-alt');
+                syncBtn.classList.add('fa-spin');
+                
+                const response = await fetch('/api/emails/sync', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    await loadEmails();
+                }
+                
+                syncBtn.classList.remove('fa-spin');
+            } catch (error) {
+                console.error('Error syncing emails:', error);
+                document.querySelector('.fa-sync-alt').classList.remove('fa-spin');
+            }
+        }
+        
+        async function searchEmails() {
+            const query = document.getElementById('search-input').value;
+            
+            if (!query) {
+                renderEmailList(emails);
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/emails/search', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        in_subject: true,
+                        in_body: true,
+                        in_sender: true
+                    })
+                });
+                
+                if (response.ok) {
+                    const searchResults = await response.json();
+                    // Store search results in global emails array so selectEmail can find them
+                    const searchEmailMap = new Map(searchResults.map(e => [e.id, e]));
+                    
+                    // Update global emails array with search results
+                    emails.forEach((email, index) => {
+                        if (searchEmailMap.has(email.id)) {
+                            emails[index] = searchEmailMap.get(email.id);
+                        }
+                    });
+                    
+                    // Add any new emails from search that aren't in the array
+                    searchResults.forEach(searchEmail => {
+                        if (!emails.find(e => e.id === searchEmail.id)) {
+                            emails.push(searchEmail);
+                        }
+                    });
+                    
+                    renderEmailList(searchResults);
+                }
+            } catch (error) {
+                console.error('Error searching emails:', error);
+            }
+        }
+        
+        function switchView(view) {
+            currentView = view;
+            
+            // Hide all views
+            document.querySelectorAll('[id$="-view"]').forEach(el => el.classList.add('hidden'));
+            
+            // Show selected view
+            document.getElementById(`${view}-view`).classList.remove('hidden');
+            
+            // Update title
+            const titles = {
+                'inbox': 'Inbox',
+                'actions': 'Action Items',
+                'huddles': 'Huddles',
+                'trash': 'Trash',
+                'saig': 'SAIG'
+            };
+            document.getElementById('view-title').textContent = titles[view];
+            
+            // Load view data
+            if (view === 'actions') loadActionItems();
+            else if (view === 'huddles') loadHuddles();
+            else if (view === 'trash') loadTrash();
+            else if (view === 'saig') {
+                // Focus on SAIG input when switching to view
+                setTimeout(() => {
+                    const input = document.getElementById('saig-main-input');
+                    if (input) input.focus();
+                }, 100);
+            }
+        }
+        
+        async function loadActionItems() {
+            try {
+                const response = await fetch('/api/actions', {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const actions = await response.json();
+                    renderActionItems(actions);
+                }
+            } catch (error) {
+                console.error('Error loading action items:', error);
+            }
+        }
+        
+        function renderActionItems(actions) {
+            const listEl = document.getElementById('action-list');
+            
+            if (actions.length === 0) {
+                listEl.innerHTML = '<div class="text-center text-gray-500">No action items</div>';
+                return;
+            }
+            
+            listEl.innerHTML = actions.map(action => `
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <h4 class="font-medium ${action.status === 'completed' ? 'line-through text-gray-500' : ''}">${action.title}</h4>
+                            ${action.description ? `<p class="text-sm text-gray-600 mt-1">${action.description}</p>` : ''}
+                            <div class="flex items-center space-x-4 mt-2 text-xs text-gray-500">
+                                <span class="priority-${action.priority}">
+                                    <i class="fas fa-flag mr-1"></i>${action.priority}
+                                </span>
+                                ${action.due_date ? `<span><i class="fas fa-clock mr-1"></i>${formatDate(action.due_date)}</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="flex space-x-2">
+                            ${action.status !== 'completed' ? `
+                                <button onclick="completeAction('${action.id}')" style="color: #7fc97f;" onmouseover="this.style.color='#6db56d'" onmouseout="this.style.color='#7fc97f'">
+                                    <i class="fas fa-check"></i>
+                                </button>
+                            ` : ''}
+                            <button onclick="deleteAction('${action.id}')" class="text-red-500 hover:text-red-600">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+            
+            // Update count
+            document.getElementById('action-count').textContent = actions.filter(a => a.status === 'pending').length;
+        }
+        
+        async function loadHuddles() {
+            try {
+                const response = await fetch('/api/huddles', {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const huddles = await response.json();
+                    renderHuddles(huddles);
+                }
+            } catch (error) {
+                console.error('Error loading huddles:', error);
+            }
+        }
+        
+        function renderHuddles(huddles) {
+            const listEl = document.getElementById('huddle-list');
+            
+            if (huddles.length === 0) {
+                listEl.innerHTML = '<div class="col-span-2 text-center text-gray-500">No huddles yet</div>';
+                return;
+            }
+            
+            listEl.innerHTML = huddles.map(huddle => `
+                <div class="bg-white p-4 rounded-lg shadow hover:shadow-md transition cursor-pointer" onclick="openHuddle('${huddle.id}')">
+                    <h4 class="font-medium mb-2">${huddle.name}</h4>
+                    ${huddle.description ? `<p class="text-sm text-gray-600 mb-3">${huddle.description}</p>` : ''}
+                    <div class="flex items-center justify-between text-xs text-gray-500">
+                        <span><i class="fas fa-users mr-1"></i>${huddle.members.length} members</span>
+                        <span>${huddle.status}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        async function loadTrash() {
+            try {
+                const response = await fetch('/api/trash', {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const trashedEmails = await response.json();
+                    renderTrash(trashedEmails);
+                }
+            } catch (error) {
+                console.error('Error loading trash:', error);
+            }
+        }
+        
+        function renderTrash(trashedEmails) {
+            const listEl = document.getElementById('trash-list');
+            
+            if (trashedEmails.length === 0) {
+                listEl.innerHTML = '<div class="text-center text-gray-500">Trash is empty</div>';
+                return;
+            }
+            
+            listEl.innerHTML = trashedEmails.map(email => `
+                <div class="bg-white p-4 rounded-lg shadow flex justify-between items-center">
+                    <div>
+                        <div class="font-medium">${email.subject || '(No subject)'}</div>
+                        <div class="text-sm text-gray-600">${email.sender} • ${formatDate(email.deleted_at)}</div>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button onclick="restoreEmail('${email.id}')" class="text-blue-500 hover:text-blue-600">
+                            <i class="fas fa-undo"></i> Restore
+                        </button>
+                        <button onclick="permanentlyDelete('${email.id}')" class="text-red-500 hover:text-red-600">
+                            <i class="fas fa-times"></i> Delete
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // SAIG Chat Functions
+        function toggleChat() {
+            const container = document.getElementById('chat-container');
+            container.classList.toggle('hidden');
+        }
+        
+        async function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            // Add user message
+            addChatMessage(message, 'user');
+            input.value = '';
+            
+            // Send to SAIG
+            try {
+                const response = await fetch('/api/saig/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        context: selectedEmailId ? { email_id: selectedEmailId } : null
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    addChatMessage(result.response, 'assistant');
+                }
+            } catch (error) {
+                console.error('Error sending message:', error);
+                addChatMessage('Sorry, I encountered an error. Please try again.', 'assistant');
+            }
+        }
+        
+        // SAIG Full View Functions
+        async function sendSaigMessage() {
+            const input = document.getElementById('saig-main-input');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            // Add user message to chat
+            const messagesEl = document.getElementById('saig-main-messages');
+            const messageContainer = messagesEl.querySelector('.max-w-3xl');
+            
+            const userMsgEl = document.createElement('div');
+            userMsgEl.className = 'text-white rounded-lg p-4 ml-auto max-w-lg mb-4';
+            userMsgEl.style.backgroundColor = '#7fc97f';
+            userMsgEl.textContent = message;
+            messageContainer.appendChild(userMsgEl);
+            
+            input.value = '';
+            
+            // Show typing indicator
+            const typingEl = document.createElement('div');
+            typingEl.className = 'bg-gray-100 rounded-lg p-4 max-w-lg mb-4';
+            typingEl.innerHTML = '<div class="flex space-x-2"><div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div><div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div><div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div></div>';
+            messageContainer.appendChild(typingEl);
+            
+            // Scroll to bottom
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            
+            // Send to SAIG API
+            try {
+                const response = await fetch('/api/saig/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ message })
+                });
+                
+                // Remove typing indicator
+                typingEl.remove();
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const aiMsgEl = document.createElement('div');
+                    aiMsgEl.className = 'bg-white rounded-lg p-4 shadow max-w-lg mb-4';
+                    aiMsgEl.innerHTML = `<p class="text-gray-700">${data.response}</p>`;
+                    messageContainer.appendChild(aiMsgEl);
+                    
+                    // Scroll to bottom
+                    messagesEl.scrollTop = messagesEl.scrollHeight;
+                }
+            } catch (error) {
+                console.error('Error sending message to SAIG:', error);
+                typingEl.remove();
+                const errorEl = document.createElement('div');
+                errorEl.className = 'bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 max-w-lg mb-4';
+                errorEl.textContent = 'Sorry, I encountered an error. Please try again.';
+                messageContainer.appendChild(errorEl);
+            }
+        }
+        
+        function askSaig(question) {
+            document.getElementById('saig-main-input').value = question;
+            sendSaigMessage();
+        }
+        
+        function addChatMessage(message, role) {
+            const messagesEl = document.getElementById('chat-messages');
+            const messageEl = document.createElement('div');
+            
+            if (role === 'user') {
+                messageEl.className = 'text-white rounded-lg p-3 max-w-[80%] ml-auto';
+                messageEl.style.backgroundColor = '#7fc97f';
+            } else {
+                messageEl.className = 'bg-gray-100 rounded-lg p-3 max-w-[80%]';
+            }
+            
+            messageEl.innerHTML = `<p class="text-sm">${message}</p>`;
+            messagesEl.appendChild(messageEl);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+        
+        // Modal Functions
+        function showComposeModal() {
+            document.getElementById('compose-modal').classList.remove('hidden');
+        }
+        
+        function closeComposeModal() {
+            document.getElementById('compose-modal').classList.add('hidden');
+            document.getElementById('compose-to').value = '';
+            document.getElementById('compose-subject').value = '';
+            document.getElementById('compose-body').value = '';
+        }
+        
+        async function sendEmail(event) {
+            event.preventDefault();
+            
+            const to = document.getElementById('compose-to').value;
+            const subject = document.getElementById('compose-subject').value;
+            const body = document.getElementById('compose-body').value;
+            
+            try {
+                const response = await fetch('/api/emails/compose', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        to: [to],
+                        subject: subject,
+                        body: body
+                    })
+                });
+                
+                if (response.ok) {
+                    closeComposeModal();
+                    await loadEmails();
+                    alert('Email sent successfully!');
+                }
+            } catch (error) {
+                console.error('Error sending email:', error);
+                alert('Failed to send email');
+            }
+        }
+        
+        // Utility Functions
+        function formatDate(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            const now = new Date();
+            const diff = now - date;
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            
+            if (days === 0) {
+                return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+            } else if (days === 1) {
+                return 'Yesterday';
+            } else if (days < 7) {
+                return date.toLocaleDateString('en-US', { weekday: 'short' });
+            } else {
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            }
+        }
+        
+        function updateUnreadCount() {
+            const unreadCount = emails.filter(e => !e.is_read).length;
+            document.getElementById('unread-count').textContent = unreadCount;
+        }
+        
+        function showLoader(id) {
+            document.getElementById(id).classList.remove('hidden');
+        }
+        
+        function hideLoader(id) {
+            document.getElementById(id).classList.add('hidden');
+        }
+        
+        function startAutoSync() {
+            setInterval(() => {
+                if (currentView === 'inbox') {
+                    syncEmails();
+                }
+            }, 30000); // Sync every 30 seconds
+        }
+        
+        function logout() {
+            localStorage.removeItem('authToken');
+            window.location.href = '/auth/login';
+        }
+        
+        // Additional functions for complete functionality
+        async function completeAction(actionId) {
+            try {
+                const response = await fetch(`/api/actions/${actionId}/complete`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    loadActionItems();
+                }
+            } catch (error) {
+                console.error('Error completing action:', error);
+            }
+        }
+        
+        async function deleteAction(actionId) {
+            if (!confirm('Delete this action item?')) return;
+            
+            try {
+                const response = await fetch(`/api/actions/${actionId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    loadActionItems();
+                }
+            } catch (error) {
+                console.error('Error deleting action:', error);
+            }
+        }
+        
+        async function restoreEmail(emailId) {
+            try {
+                const response = await fetch(`/api/trash/${emailId}/restore`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    loadTrash();
+                }
+            } catch (error) {
+                console.error('Error restoring email:', error);
+            }
+        }
+        
+        async function permanentlyDelete(emailId) {
+            if (!confirm('Permanently delete this email? This cannot be undone.')) return;
+            
+            try {
+                const response = await fetch(`/api/trash/${emailId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    loadTrash();
+                }
+            } catch (error) {
+                console.error('Error deleting email:', error);
+            }
+        }
+        
+        async function emptyTrash() {
+            if (!confirm('Empty all trash? This cannot be undone.')) return;
+            
+            try {
+                const response = await fetch('/api/trash/empty', {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    loadTrash();
+                }
+            } catch (error) {
+                console.error('Error emptying trash:', error);
+            }
+        }
+        
+        // Action Modal Functions
+        let currentActionEmailId = null;
+        
+        function showCreateActionModal(emailId = null) {
+            currentActionEmailId = emailId;
+            const modal = document.getElementById('action-modal');
+            
+            // If linked to an email, show the link
+            if (emailId) {
+                const email = emails.find(e => e.id === emailId);
+                if (email) {
+                    document.getElementById('action-email-link').classList.remove('hidden');
+                    document.getElementById('linked-email-subject').textContent = email.subject || '(No subject)';
+                    document.getElementById('action-title').value = `Follow up: ${email.subject}`;
+                }
+            } else {
+                document.getElementById('action-email-link').classList.add('hidden');
+                document.getElementById('action-title').value = '';
+            }
+            
+            // Reset other fields
+            document.getElementById('action-description').value = '';
+            document.getElementById('action-priority').value = '2';
+            document.getElementById('action-due-date').value = '';
+            
+            modal.classList.remove('hidden');
+            document.getElementById('action-title').focus();
+        }
+        
+        function closeActionModal() {
+            document.getElementById('action-modal').classList.add('hidden');
+            currentActionEmailId = null;
+        }
+        
+        async function saveActionItem() {
+            const title = document.getElementById('action-title').value.trim();
+            const description = document.getElementById('action-description').value.trim();
+            const priority = parseInt(document.getElementById('action-priority').value);
+            const dueDate = document.getElementById('action-due-date').value;
+            
+            if (!title) {
+                alert('Please enter a title for the action item');
+                return;
+            }
+            
+            try {
+                const body = {
+                    title: title,
+                    description: description,
+                    priority: priority,
+                    email_id: currentActionEmailId
+                };
+                
+                if (dueDate) {
+                    body.due_date = new Date(dueDate).toISOString();
+                }
+                
+                const response = await fetch('/api/actions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body)
+                });
+                
+                if (response.ok) {
+                    closeActionModal();
+                    if (currentView === 'actions') {
+                        loadActionItems();
+                    }
+                    showNotification('Action item created successfully', 'success');
+                }
+            } catch (error) {
+                console.error('Error creating action item:', error);
+                showNotification('Failed to create action item', 'error');
+            }
+        }
+        
+        function createActionFromEmail(emailId) {
+            showCreateActionModal(emailId);
+        }
+        
+        // Backward compatibility
+        async function createActionItem(title, emailId = null) {
+            currentActionEmailId = emailId;
+            document.getElementById('action-title').value = title;
+            showCreateActionModal(emailId);
+        }
+        
+        function showCreateHuddleModal() {
+            const name = prompt('Huddle name:');
+            if (name) {
+                createHuddle(name);
+            }
+        }
+        
+        async function createHuddle(name) {
+            try {
+                const response = await fetch('/api/huddles', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        member_emails: []
+                    })
+                });
+                
+                if (response.ok) {
+                    loadHuddles();
+                }
+            } catch (error) {
+                console.error('Error creating huddle:', error);
+            }
+        }
+        
+        function openHuddle(huddleId) {
+            // Implementation for opening huddle detail view
+            alert(`Opening huddle ${huddleId}`);
+        }
+        
+        function showReplyModal(emailId) {
+            const email = emails.find(e => e.id === emailId);
+            if (email) {
+                const reply = prompt('Your reply:');
+                if (reply) {
+                    replyToEmail(emailId, reply);
+                }
+            }
+        }
+        
+        async function replyToEmail(emailId, body) {
+            try {
+                const response = await fetch('/api/emails/reply', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email_id: emailId,
+                        body: body,
+                        reply_all: false
+                    })
+                });
+                
+                if (response.ok) {
+                    alert('Reply sent!');
+                }
+            } catch (error) {
+                console.error('Error sending reply:', error);
+            }
+        }
+    </script>
+</body>
+</html>
