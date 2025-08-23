@@ -27,9 +27,22 @@ class User(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     email = Column(String, unique=True, nullable=False, index=True)
     name = Column(String)
+    picture = Column(String)  # Profile picture URL
+    provider = Column(String)  # OAuth provider (google, microsoft, demo)
+    
+    # OAuth tokens (encrypted in production)
+    oauth_provider = Column(String)
+    oauth_access_token = Column(Text)
+    oauth_refresh_token = Column(Text)
+    oauth_token_expires = Column(DateTime)
+    
+    # Legacy fields for compatibility
     access_token = Column(Text)
     refresh_token = Column(Text)
     token_expiry = Column(DateTime)
+    
+    # Timestamps
+    last_login = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

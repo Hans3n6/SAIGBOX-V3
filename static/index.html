@@ -92,12 +92,14 @@
                 <div class="flex items-center justify-between px-6 py-4">
                     <div class="flex items-center space-x-4">
                         <h2 id="view-title" class="text-xl font-semibold text-gray-900">Inbox</h2>
-                        <button onclick="syncEmails()" class="text-gray-500 hover:text-gray-700">
-                            <i class="fas fa-sync-alt"></i>
+                        <button onclick="syncEmails()" class="text-gray-500 hover:text-gray-700" title="Sync emails">
+                            <i id="sync-icon" class="fas fa-sync-alt"></i>
                         </button>
+                        <span id="sync-status" class="text-sm text-gray-500"></span>
+                        <span id="email-count" class="text-sm text-gray-600 font-medium"></span>
                     </div>
                     
-                    <div class="flex items-center space-x-4">
+                    <div id="inbox-controls" class="flex items-center space-x-4">
                         <div class="relative">
                             <input type="text" id="search-input" placeholder="Search emails..." 
                                    class="pl-10 pr-4 py-2 border rounded-lg focus:outline-none" style="border-color: #e5e7eb;" onfocus="this.style.borderColor='#7fc97f'" onblur="this.style.borderColor='#e5e7eb'">
@@ -515,8 +517,27 @@
         document.head.appendChild(style);
         
         // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            // Check for token in URL
+        document.addEventListener('DOMContentLoaded', async function() {
+            // First check if user is authenticated via session cookie
+            try {
+                const authCheckResponse = await fetch('/api/auth/check', {
+                    credentials: 'include'
+                });
+                
+                if (authCheckResponse.ok) {
+                    const authData = await authCheckResponse.json();
+                    if (authData.authenticated) {
+                        // User is authenticated via session
+                        authToken = localStorage.getItem('authToken') || 'session';
+                        init();
+                        return;
+                    }
+                }
+            } catch (error) {
+                console.error('Auth check failed:', error);
+            }
+            
+            // Check for token in URL (for backward compatibility)
             const urlParams = new URLSearchParams(window.location.search);
             const token = urlParams.get('token');
             
@@ -526,11 +547,30 @@
                 window.history.replaceState({}, document.title, '/');
                 init();
             } else {
+                // Check localStorage token
                 authToken = localStorage.getItem('authToken');
                 if (authToken) {
-                    init();
+                    // Verify token is still valid
+                    try {
+                        const response = await fetch('/api/user/me', {
+                            headers: {
+                                'Authorization': `Bearer ${authToken}`
+                            }
+                        });
+                        if (response.ok) {
+                            init();
+                        } else {
+                            // Token is invalid, redirect to login
+                            localStorage.removeItem('authToken');
+                            window.location.href = '/login';
+                        }
+                    } catch (error) {
+                        console.error('Token validation failed:', error);
+                        window.location.href = '/login';
+                    }
                 } else {
-                    window.location.href = '/auth/login';
+                    // No authentication found, redirect to login
+                    window.location.href = '/login';
                 }
             }
         });
@@ -597,9 +637,10 @@
             try {
                 const response = await fetch(`/api/emails/sync?max_results=${batchSize}`, {
                     method: 'POST',
-                    headers: {
+                    headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`
-                    }
+                    } : {},
+                    credentials: 'include'
                 });
                 
                 if (response.ok) {
@@ -629,9 +670,10 @@
             try {
                 currentPage++;
                 const response = await fetch(`/api/emails?page=${currentPage}&limit=50`, {
-                    headers: {
+                    headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`
-                    }
+                    } : {},
+                    credentials: 'include'
                 });
                 
                 if (response.ok) {
@@ -672,9 +714,10 @@
             try {
                 showLoader('email-loader');
                 const response = await fetch(`/api/emails?page=${page}&limit=50`, {
-                    headers: {
+                    headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`
-                    }
+                    } : {},
+                    credentials: 'include'
                 });
                 
                 if (!response.ok) throw new Error('Failed to load emails');
@@ -863,9 +906,10 @@
                 
                 const response = await fetch('/api/emails/sync', {
                     method: 'POST',
-                    headers: {
+                    headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`
-                    }
+                    } : {},
+                    credentials: 'include'
                 });
                 
                 if (response.ok) {
@@ -936,6 +980,14 @@
             
             // Show selected view
             document.getElementById(`${view}-view`).classList.remove('hidden');
+            
+            // Show/hide inbox controls (search and compose)
+            const inboxControls = document.getElementById('inbox-controls');
+            if (view === 'inbox') {
+                inboxControls.style.display = 'flex';
+            } else {
+                inboxControls.style.display = 'none';
+            }
             
             // Update title
             const titles = {
@@ -1303,9 +1355,22 @@
             }, 30000); // Sync every 30 seconds
         }
         
-        function logout() {
+        async function logout() {
+            try {
+                // Call logout endpoint to clear session cookies
+                await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+            
+            // Clear local storage
             localStorage.removeItem('authToken');
-            window.location.href = '/auth/login';
+            
+            // Redirect to login page
+            window.location.href = '/login';
         }
         
         // Additional functions for complete functionality

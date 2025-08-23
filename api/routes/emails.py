@@ -7,6 +7,7 @@ from api.auth import get_current_user
 from api.models import *
 from core.database import get_db, User, Email as EmailModel
 from core.gmail_service import GmailService
+from core.token_manager import token_manager
 
 router = APIRouter()
 gmail_service = GmailService()

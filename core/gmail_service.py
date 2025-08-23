@@ -16,9 +16,10 @@ logger = logging.getLogger(__name__)
 
 class GmailService:
     def __init__(self):
+        # OAuth app credentials for token refresh
         self.client_id = os.getenv("GMAIL_CLIENT_ID")
         self.client_secret = os.getenv("GMAIL_CLIENT_SECRET")
-        self.redirect_uri = os.getenv("GMAIL_REDIRECT_URI", "http://localhost:8000/auth/callback")
+        self.token_uri = "https://oauth2.googleapis.com/token"
         self.scopes = [
             'https://www.googleapis.com/auth/gmail.readonly',
             'https://www.googleapis.com/auth/gmail.send',
@@ -30,60 +31,51 @@ class GmailService:
             'https://mail.google.com/'
         ]
     
-    def get_auth_url(self) -> str:
-        flow = Flow.from_client_config(
-            {
-                "installed": {
-                    "client_id": self.client_id,
-                    "client_secret": self.client_secret,
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                }
-            },
-            scopes=self.scopes,
-            redirect_uri=self.redirect_uri
-        )
-        auth_url, _ = flow.authorization_url(
-            access_type='offline',
-            include_granted_scopes='true',
-            prompt='consent'
-        )
-        return auth_url
-    
-    def exchange_code(self, code: str) -> Dict[str, Any]:
-        flow = Flow.from_client_config(
-            {
-                "installed": {
-                    "client_id": self.client_id,
-                    "client_secret": self.client_secret,
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                }
-            },
-            scopes=self.scopes,
-            redirect_uri=self.redirect_uri
-        )
-        flow.fetch_token(code=code)
-        credentials = flow.credentials
-        
-        return {
-            'access_token': credentials.token,
-            'refresh_token': credentials.refresh_token,
-            'token_expiry': credentials.expiry.isoformat() if credentials.expiry else None
-        }
-    
-    def get_service(self, user: User):
-        if not user.access_token:
-            raise ValueError("User has no access token")
-        
+    def create_service_from_tokens(self, access_token: str, refresh_token: str = None):
+        """Create Gmail service directly from OAuth tokens"""
         credentials = Credentials(
-            token=user.access_token,
-            refresh_token=user.refresh_token,
-            token_uri="https://oauth2.googleapis.com/token",
+            token=access_token,
+            refresh_token=refresh_token,
+            token_uri=self.token_uri,
             client_id=self.client_id,
             client_secret=self.client_secret,
             scopes=self.scopes
         )
+        
+        return build('gmail', 'v1', credentials=credentials)
+    
+    def get_service(self, user: User):
+        """Get Gmail service using user's OAuth tokens"""
+        # Use OAuth tokens from the user's OAuth flow
+        if user.oauth_access_token:
+            # User authenticated via OAuth (Google/Microsoft)
+            access_token = user.oauth_access_token
+            refresh_token = user.oauth_refresh_token
+        elif user.access_token:
+            # Legacy support
+            access_token = user.access_token
+            refresh_token = user.refresh_token
+        else:
+            raise ValueError("User has no access token. Please re-authenticate.")
+        
+        credentials = Credentials(
+            token=access_token,
+            refresh_token=refresh_token,
+            token_uri=self.token_uri,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            scopes=self.scopes
+        )
+        
+        # Check if token needs refresh
+        if credentials.expired and credentials.refresh_token:
+            from google.auth.transport.requests import Request
+            credentials.refresh(Request())
+            
+            # Update stored tokens
+            user.oauth_access_token = credentials.token
+            if credentials.expiry:
+                user.oauth_token_expires = credentials.expiry
         
         return build('gmail', 'v1', credentials=credentials)
     

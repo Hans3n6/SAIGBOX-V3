@@ -13,9 +13,15 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from api.auth import get_current_user, get_or_create_user, create_access_token
+from api.auth import (get_current_user, get_or_create_user, create_access_token,
+                      get_current_user_optional, get_google_oauth_url, 
+                      get_microsoft_oauth_url, exchange_google_code,
+                      exchange_microsoft_code, get_google_user_info,
+                      get_microsoft_user_info, verify_oauth_state,
+                      store_oauth_tokens, create_refresh_token)
 from api.models import *
 from api.routes import emails, actions, huddles, trash, saig
+from api.middleware import AuthMiddleware
 from core.database import get_db, User, Email
 from core.gmail_service import GmailService
 
@@ -29,6 +35,9 @@ app = FastAPI(
     description="Email Management Platform with AI Assistant",
     version="3.0.0"
 )
+
+# Add authentication middleware
+app.add_middleware(AuthMiddleware)
 
 # CORS middleware
 app.add_middleware(
@@ -71,68 +80,269 @@ async def startup_event():
     logger.info("SAIGBOX V3 started successfully")
 
 @app.get("/", response_class=HTMLResponse)
-async def root():
-    """Serve the main application"""
+async def root(request: Request, current_user: Optional[User] = Depends(get_current_user_optional)):
+    """Serve the main application or redirect to login"""
+    if not current_user:
+        return RedirectResponse(url="/login")
     try:
         with open("static/index.html", "r") as f:
             return HTMLResponse(content=f.read())
     except FileNotFoundError:
         return HTMLResponse(content="<h1>SAIGBOX V3</h1><p>Please create static/index.html</p>")
 
-@app.get("/auth/login")
-async def login():
-    """Redirect to Gmail OAuth"""
-    auth_url = gmail_service.get_auth_url()
-    return RedirectResponse(url=auth_url)
-
-@app.get("/auth/callback")
-async def auth_callback(code: str, db: Session = Depends(get_db)):
-    """Handle OAuth callback"""
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, current_user: Optional[User] = Depends(get_current_user_optional)):
+    """Serve the login page"""
+    if current_user:
+        return RedirectResponse(url="/")
     try:
+        with open("static/auth.html", "r") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        try:
+            with open("static/login.html", "r") as f:
+                return HTMLResponse(content=f.read())
+        except FileNotFoundError:
+            return HTMLResponse(content="<h1>Login</h1><p>Please create static/auth.html or login.html</p>")
+
+@app.get("/auth", response_class=HTMLResponse)
+async def auth_page(request: Request, current_user: Optional[User] = Depends(get_current_user_optional)):
+    """Serve the auth page"""
+    if current_user:
+        return RedirectResponse(url="/")
+    try:
+        with open("static/auth.html", "r") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Authentication</h1><p>Please create static/auth.html</p>")
+
+@app.get("/api/auth/check")
+async def check_auth(current_user: Optional[User] = Depends(get_current_user_optional)):
+    """Check if user is authenticated"""
+    return {"authenticated": current_user is not None}
+
+@app.get("/api/auth/google/url")
+async def get_google_auth_url():
+    """Get Google OAuth URL"""
+    url = get_google_oauth_url()
+    return {"url": url}
+
+@app.get("/api/auth/microsoft/url")
+async def get_microsoft_auth_url():
+    """Get Microsoft OAuth URL"""
+    url = get_microsoft_oauth_url()
+    return {"url": url}
+
+@app.post("/api/auth/demo")
+async def demo_login(db: Session = Depends(get_db)):
+    """Demo login for testing"""
+    demo_email = "demo@saigbox.com"
+    demo_user = get_or_create_user(db, demo_email, "Demo User", provider="demo")
+    
+    # Create both access and refresh tokens
+    access_token = create_access_token(data={"sub": demo_email})
+    refresh_token = create_refresh_token(data={"sub": demo_email})
+    
+    response = JSONResponse(content={
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": {
+            "email": demo_user.email,
+            "name": demo_user.name
+        }
+    })
+    
+    # Set cookie for session
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax",
+        max_age=86400  # 1 day
+    )
+    
+    return response
+
+@app.get("/api/auth/google/callback")
+async def google_auth_callback(
+    code: str, 
+    state: str,
+    db: Session = Depends(get_db)
+):
+    """Handle Google OAuth callback"""
+    try:
+        # State verification is handled in exchange_google_code
+        
         # Exchange code for tokens
-        tokens = gmail_service.exchange_code(code)
+        tokens = await exchange_google_code(code, state)
         
-        # Get user info from token
-        from google.oauth2.credentials import Credentials
-        from googleapiclient.discovery import build
+        # Get user info
+        user_info = await get_google_user_info(tokens['access_token'])
         
-        credentials = Credentials(
-            token=tokens['access_token'],
-            refresh_token=tokens.get('refresh_token'),
-            token_uri="https://oauth2.googleapis.com/token",
-            client_id=gmail_service.client_id,
-            client_secret=gmail_service.client_secret
+        # Create or update user
+        user = get_or_create_user(
+            db, 
+            email=user_info['email'],
+            name=user_info.get('name'),
+            picture=user_info.get('picture'),
+            provider="google"
         )
         
-        # Get user email from Gmail API
-        service = build('gmail', 'v1', credentials=credentials)
-        profile = service.users().getProfile(userId='me').execute()
-        email = profile['emailAddress']
+        # Store OAuth tokens
+        store_oauth_tokens(
+            db,
+            user.id,
+            "google",
+            tokens['access_token'],
+            tokens.get('refresh_token'),
+            tokens.get('expires_in')
+        )
         
-        # Get or create user
-        user = get_or_create_user(db, email, email)
+        # Trigger initial email sync
+        try:
+            logger.info(f"Starting initial email sync for user {user.email}")
+            result = gmail_service.fetch_emails(db, user, max_results=50)
+            logger.info(f"Initial sync completed: {len(result['emails'])} emails fetched")
+        except Exception as sync_error:
+            logger.error(f"Initial sync failed: {sync_error}")
+            # Don't fail the login if sync fails
         
-        # Update tokens
-        user.access_token = tokens['access_token']
-        user.refresh_token = tokens.get('refresh_token')
-        if tokens.get('token_expiry'):
-            user.token_expiry = datetime.fromisoformat(tokens['token_expiry'])
-        
-        db.commit()
-        
-        # Create JWT token
+        # Create JWT tokens
         access_token = create_access_token(data={"sub": user.email})
+        refresh_token = create_refresh_token(data={"sub": user.email})
         
-        # Redirect to app with token
-        return RedirectResponse(url=f"/?token={access_token}")
+        # Redirect to app with token in cookie
+        response = RedirectResponse(url="/")
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            secure=False,  # Set to True in production
+            samesite="lax",
+            max_age=86400
+        )
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            secure=False,
+            samesite="lax",
+            max_age=2592000  # 30 days
+        )
+        
+        return response
         
     except Exception as e:
-        logger.error(f"Auth callback error: {e}")
-        # Try to handle scope change error gracefully
-        if "Scope has changed" in str(e):
-            # Re-initiate auth flow with correct scopes
-            return RedirectResponse(url="/auth/login")
-        return RedirectResponse(url=f"/?error={str(e)}")
+        logger.error(f"Google auth callback error: {e}")
+        return RedirectResponse(url=f"/login?error=auth_failed")
+
+@app.get("/api/auth/microsoft/callback")
+async def microsoft_auth_callback(
+    code: str,
+    state: str,
+    db: Session = Depends(get_db)
+):
+    """Handle Microsoft OAuth callback"""
+    try:
+        # State verification is handled in exchange_microsoft_code
+        
+        # Exchange code for tokens
+        tokens = await exchange_microsoft_code(code, state)
+        
+        # Get user info
+        user_info = await get_microsoft_user_info(tokens['access_token'])
+        
+        # Create or update user
+        user = get_or_create_user(
+            db,
+            email=user_info.get('mail') or user_info.get('userPrincipalName'),
+            name=user_info.get('displayName'),
+            provider="microsoft"
+        )
+        
+        # Store OAuth tokens
+        store_oauth_tokens(
+            db,
+            user.id,
+            "microsoft",
+            tokens['access_token'],
+            tokens.get('refresh_token'),
+            tokens.get('expires_in')
+        )
+        
+        # Create JWT tokens
+        access_token = create_access_token(data={"sub": user.email})
+        refresh_token = create_refresh_token(data={"sub": user.email})
+        
+        # Redirect with cookies
+        response = RedirectResponse(url="/")
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            secure=False,
+            samesite="lax",
+            max_age=86400
+        )
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            secure=False,
+            samesite="lax",
+            max_age=2592000
+        )
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Microsoft auth callback error: {e}")
+        return RedirectResponse(url=f"/login?error=auth_failed")
+
+@app.post("/api/auth/logout")
+async def logout():
+    """Logout user"""
+    response = JSONResponse(content={"message": "Logged out successfully"})
+    response.delete_cookie("access_token")
+    response.delete_cookie("refresh_token")
+    return response
+
+@app.post("/api/auth/refresh")
+async def refresh_token(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Refresh access token"""
+    from api.auth import verify_refresh_token
+    
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Refresh token not found")
+    
+    email = verify_refresh_token(refresh_token)
+    if not email:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    
+    # Create new access token
+    access_token = create_access_token(data={"sub": email})
+    
+    response = JSONResponse(content={
+        "access_token": access_token,
+        "token_type": "bearer"
+    })
+    
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=86400
+    )
+    
+    return response
 
 @app.get("/api/user/me")
 async def get_me(current_user: User = Depends(get_current_user)):
