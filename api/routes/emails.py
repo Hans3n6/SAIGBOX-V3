@@ -7,14 +7,22 @@ import logging
 
 from api.auth import get_current_user
 from api.models import *
-from core.database import get_db, User, Email as EmailModel
+from core.database import get_db, User, Email as EmailModel, ActionItem, UrgencyPattern
 from core.gmail_service import GmailService
 from core.token_manager import token_manager
 from core.saig_assistant import SAIGAssistant
+from core.urgency_detector import UrgencyDetector
+import asyncio
+import os
 
 router = APIRouter()
 gmail_service = GmailService()
+saig_assistant = SAIGAssistant()
 logger = logging.getLogger(__name__)
+
+# Queue for processing urgent emails
+urgent_email_queue = asyncio.Queue()
+processing_urgent = False
 
 @router.get("/", response_model=EmailListResponse)
 async def list_emails(
@@ -35,6 +43,47 @@ async def list_emails(
         query = query.filter(
             (EmailModel.subject.contains(search)) |
             (EmailModel.sender.contains(search)) |
+            (EmailModel.body_text.contains(search))
+        )
+    
+    # Get total count
+    total = query.count()
+    
+    # Apply pagination
+    offset = (page - 1) * limit
+    emails = query.order_by(EmailModel.received_at.desc()).offset(offset).limit(limit).all()
+    
+    # Calculate pagination info
+    pages = (total + limit - 1) // limit
+    
+    return EmailListResponse(
+        emails=emails,
+        total=total,
+        page=page,
+        pages=pages,
+        has_next=page < pages,
+        has_prev=page > 1
+    )
+
+@router.get("/sent", response_model=EmailListResponse)
+async def list_sent_emails(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List sent emails with pagination and search"""
+    query = db.query(EmailModel).filter(
+        EmailModel.user_id == current_user.id,
+        EmailModel.sender == current_user.email,
+        EmailModel.deleted_at.is_(None)
+    )
+    
+    # Apply search filter
+    if search:
+        query = query.filter(
+            (EmailModel.subject.contains(search)) |
             (EmailModel.body_text.contains(search))
         )
     
@@ -561,4 +610,255 @@ def generate_fallback_summary(subject: str, sender: str, content: str) -> Dict:
             "has_ai_summary": False
         },
         "content": html
+    }
+
+@router.post("/sync")
+async def sync_emails(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Sync emails from Gmail with urgency detection"""
+    try:
+        # Initialize urgency detector
+        urgency_detector = UrgencyDetector(db)
+        
+        # Fetch new emails from Gmail
+        new_emails = gmail_service.fetch_recent_emails(current_user, limit=50)
+        
+        synced_count = 0
+        urgent_count = 0
+        
+        for email_data in new_emails:
+            # Check if email already exists
+            existing = db.query(EmailModel).filter(
+                EmailModel.gmail_id == email_data.get('gmail_id')
+            ).first()
+            
+            if not existing:
+                # Create new email record
+                email = EmailModel(
+                    user_id=current_user.id,
+                    gmail_id=email_data.get('gmail_id'),
+                    thread_id=email_data.get('thread_id'),
+                    subject=email_data.get('subject'),
+                    sender=email_data.get('sender'),
+                    sender_name=email_data.get('sender_name'),
+                    recipients=email_data.get('recipients'),
+                    body_text=email_data.get('body_text'),
+                    body_html=email_data.get('body_html'),
+                    snippet=email_data.get('snippet'),
+                    is_read=email_data.get('is_read', False),
+                    is_starred=email_data.get('is_starred', False),
+                    has_attachments=email_data.get('has_attachments', False),
+                    attachments=email_data.get('attachments'),
+                    received_at=email_data.get('received_at'),
+                    labels=email_data.get('labels')
+                )
+                
+                # Check urgency
+                is_urgent, score, reason = urgency_detector.should_mark_urgent(email, current_user)
+                
+                if is_urgent:
+                    email.is_urgent = True
+                    email.urgency_score = score
+                    email.urgency_reason = reason
+                    urgent_count += 1
+                    
+                    # Add to urgent processing queue
+                    await urgent_email_queue.put((email, current_user))
+                
+                db.add(email)
+                synced_count += 1
+        
+        db.commit()
+        
+        # Start processing urgent emails if not already running
+        if urgent_count > 0 and not processing_urgent:
+            asyncio.create_task(process_urgent_emails(db))
+        
+        return {
+            "success": True,
+            "synced": synced_count,
+            "urgent": urgent_count,
+            "message": f"Synced {synced_count} new emails, {urgent_count} marked as urgent"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error syncing emails: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def process_urgent_emails(db: Session):
+    """Background task to process urgent emails through AI"""
+    global processing_urgent
+    processing_urgent = True
+    
+    batch_size = int(os.getenv('URGENCY_BATCH_SIZE', '5'))
+    confidence_threshold = int(os.getenv('ACTION_CONFIDENCE_THRESHOLD', '70'))
+    
+    try:
+        while not urgent_email_queue.empty():
+            batch = []
+            
+            # Get batch of urgent emails
+            for _ in range(min(batch_size, urgent_email_queue.qsize())):
+                if not urgent_email_queue.empty():
+                    batch.append(await urgent_email_queue.get())
+            
+            # Process each email
+            for email, user in batch:
+                try:
+                    # Analyze with SAIG
+                    analysis = await saig_assistant.analyze_urgent_email(email, db, user)
+                    
+                    # Update email with analysis results
+                    email.urgency_analyzed_at = datetime.utcnow()
+                    
+                    # Create action items
+                    created_items = []
+                    for item_data in analysis.get('action_items', []):
+                        if item_data['confidence'] >= confidence_threshold:
+                            action_item = ActionItem(
+                                user_id=user.id,
+                                email_id=email.id,
+                                title=item_data['title'],
+                                description=item_data['description'],
+                                due_date=item_data.get('due_date'),
+                                priority={'high': 1, 'medium': 2, 'low': 3}.get(
+                                    item_data.get('priority', 'medium'), 2
+                                ),
+                                auto_created=True,
+                                confidence_score=item_data['confidence'],
+                                source_quote=item_data.get('source_quote', '')
+                            )
+                            db.add(action_item)
+                            created_items.append(action_item)
+                    
+                    if created_items:
+                        email.auto_actions_created = True
+                        email.action_count = len(created_items)
+                        
+                        # TODO: Send WebSocket notification to user
+                        # await websocket_manager.send_action_items_created(
+                        #     user.id, email, created_items
+                        # )
+                    
+                    db.commit()
+                    logger.info(f"Processed urgent email {email.id}: {len(created_items)} actions created")
+                    
+                except Exception as e:
+                    logger.error(f"Error processing urgent email {email.id}: {e}")
+                    continue
+            
+            # Wait before processing next batch
+            await asyncio.sleep(int(os.getenv('URGENCY_PROCESSING_INTERVAL', '30')))
+    
+    finally:
+        processing_urgent = False
+
+@router.get("/urgent")
+async def get_urgent_emails(
+    limit: int = Query(50, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all urgent emails for current user"""
+    emails = db.query(EmailModel).filter(
+        EmailModel.user_id == current_user.id,
+        EmailModel.is_urgent == True,
+        EmailModel.deleted_at.is_(None)
+    ).order_by(
+        EmailModel.urgency_score.desc(),
+        EmailModel.received_at.desc()
+    ).limit(limit).all()
+    
+    return {
+        "emails": emails,
+        "total": len(emails)
+    }
+
+@router.patch("/{email_id}/urgency")
+async def update_email_urgency(
+    email_id: str,
+    urgency_update: Dict[str, bool],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Manually override urgency status"""
+    email = db.query(EmailModel).filter(
+        EmailModel.id == email_id,
+        EmailModel.user_id == current_user.id
+    ).first()
+    
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    
+    is_urgent = urgency_update.get('is_urgent', False)
+    
+    # Update urgency status
+    email.is_urgent = is_urgent
+    if not is_urgent:
+        email.urgency_score = 0
+        email.urgency_reason = "Manually marked as not urgent"
+    else:
+        email.urgency_reason = "Manually marked as urgent"
+    
+    db.commit()
+    
+    # Learn from correction
+    urgency_detector = UrgencyDetector(db)
+    urgency_detector.learn_from_correction(email, current_user, is_urgent)
+    
+    return {
+        "success": True,
+        "is_urgent": is_urgent
+    }
+
+@router.post("/urgency/learn")
+async def learn_from_correction(
+    correction_data: Dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update patterns based on user correction"""
+    email_id = correction_data.get('email_id')
+    corrected_to = correction_data.get('corrected_to')
+    
+    email = db.query(EmailModel).filter(
+        EmailModel.id == email_id,
+        EmailModel.user_id == current_user.id
+    ).first()
+    
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    
+    urgency_detector = UrgencyDetector(db)
+    urgency_detector.learn_from_correction(email, current_user, corrected_to)
+    
+    return {"success": True, "message": "Pattern learning updated"}
+
+@router.post("/urgent/process")
+async def manually_process_urgent(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Manually trigger urgent email processing"""
+    # Get unprocessed urgent emails
+    urgent_emails = db.query(EmailModel).filter(
+        EmailModel.user_id == current_user.id,
+        EmailModel.is_urgent == True,
+        EmailModel.urgency_analyzed_at.is_(None),
+        EmailModel.deleted_at.is_(None)
+    ).limit(10).all()
+    
+    for email in urgent_emails:
+        await urgent_email_queue.put((email, current_user))
+    
+    # Start processing if not already running
+    if not processing_urgent and not urgent_email_queue.empty():
+        asyncio.create_task(process_urgent_emails(db))
+    
+    return {
+        "success": True,
+        "queued": len(urgent_emails),
+        "message": f"Queued {len(urgent_emails)} urgent emails for processing"
     }

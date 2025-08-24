@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.database import Email, User, ChatHistory, ActionItem
 from core.gmail_service import GmailService
+from core.urgency_detector import UrgencyDetector
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -403,10 +404,13 @@ Keep your response concise and helpful."""
 
 Extract the following information as JSON:
 - recipient: email address (required)
+- recipient_name: the recipient's actual name if mentioned (optional, e.g., "John Smith" from "send an email to John Smith at john@example.com")
 - subject: email subject line (required) 
-- message: the main email content (required)
+- message: ONLY the main body content WITHOUT greeting or closing (required). Do NOT include "Dear X", "Hi X", "Sincerely", "Best regards", etc. Just the core message content.
 - tone: formal, casual, or professional (default: professional)
 - reply_to_email_id: if this is a reply to a specific email, extract the email ID from context
+
+IMPORTANT: The 'message' field should contain ONLY the main content. Greetings and signatures will be added automatically.
 
 If the message doesn't contain enough information, return an error indicating what's missing.
 
@@ -427,13 +431,20 @@ Context: {json.dumps(context, indent=2) if context else "No context"}
                 return f"I need more information to compose the email. Please provide: {', '.join(missing)}", []
             
             # Generate formatted email with greeting and signature
+            # If recipient_name is provided, create a context with it
+            compose_context = None
+            if email_data.get('recipient_name'):
+                compose_context = {'sender_name': email_data['recipient_name']}
+            elif email_data.get('reply_to_email_id') and context.get('selected_email'):
+                compose_context = context.get('selected_email')
+            
             formatted_email = await self._format_email(
                 user=user,
                 recipient=email_data['recipient'],
                 subject=email_data['subject'],
                 message=email_data['message'],
                 tone=email_data.get('tone', 'professional'),
-                reply_context=context.get('selected_email') if email_data.get('reply_to_email_id') else None
+                reply_context=compose_context
             )
             
             # Escape the email body for JavaScript
@@ -609,15 +620,25 @@ Generate an appropriate reply based on the user's request and the original email
             return formatted_email['body'], ["email_reply_created"]
             
         except Exception as e:
-            logger.error(f"Error generating reply: {e}")
+            logger.error(f"Error generating reply: {str(e)}")
+            logger.error(f"Reply context: has selected_email={context.get('selected_email') is not None}")
+            logger.error(f"Full exception: {e.__class__.__name__}: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return "I had trouble generating a reply. Please try again with more specific instructions.", []
     
     async def _format_email(self, user: User, recipient: str, subject: str, message: str, 
                            tone: str = 'professional', reply_context: Dict = None) -> Dict[str, str]:
-        # Extract recipient's first name from email if possible
-        recipient_name = recipient.split('@')[0].replace('.', ' ').replace('_', ' ').title()
-        # Get just the first name
-        recipient_first_name = recipient_name.split()[0] if recipient_name else recipient.split('@')[0]
+        # Get recipient's name - use sender_name from reply context if available
+        if reply_context and reply_context.get('sender_name'):
+            # Use the actual sender name from the email we're replying to
+            recipient_full_name = reply_context['sender_name']
+            # Extract first name from full name
+            recipient_first_name = recipient_full_name.split()[0] if recipient_full_name else None
+        else:
+            # Fallback to extracting from email address
+            recipient_name = recipient.split('@')[0].replace('.', ' ').replace('_', ' ').title()
+            recipient_first_name = recipient_name.split()[0] if recipient_name else recipient.split('@')[0]
         
         # Get sender's actual name from user object
         sender_name = user.name if user.name else user.email.split('@')[0].replace('.', ' ').replace('_', ' ').title()
@@ -653,6 +674,114 @@ Generate an appropriate reply based on the user's request and the original email
             'subject': subject,
             'recipient': recipient
         }
+    
+    async def analyze_urgent_email(self, email: Email, db: Session, user: User) -> Dict[str, Any]:
+        """
+        Deep AI analysis for emails marked as urgent.
+        Extracts action items with high precision.
+        
+        Returns comprehensive analysis with action items and urgency confirmation.
+        """
+        try:
+            # Prepare email content for analysis
+            email_content = email.body_text or email.body_html or email.snippet or ""
+            
+            prompt = f"""Analyze this email marked as potentially urgent and extract any action items.
+
+Email Details:
+From: {email.sender_name or email.sender}
+Subject: {email.subject}
+Date: {email.received_at}
+Body: {email_content[:2000]}
+
+Please analyze and provide the following in JSON format:
+
+1. is_truly_urgent: boolean - Is this email genuinely urgent requiring immediate attention?
+2. urgency_confirmation_reason: string - Brief explanation of why it is/isn't urgent
+3. summary: string - 1-2 sentence summary of the email
+4. action_items: array of objects, each containing:
+   - title: string - Concise, actionable task title (e.g., "Review Q4 budget proposal")
+   - description: string - Detailed description with context
+   - due_date: ISO date string or null - Extract any mentioned deadline
+   - priority: "high" | "medium" | "low" - Based on urgency and importance
+   - confidence: number 0-100 - How confident you are this is a real action item
+   - source_quote: string - The exact text that indicates this action item
+
+IMPORTANT INSTRUCTIONS:
+- Be CONSERVATIVE with action items - only extract clear, actionable tasks
+- Each action item must be something the recipient needs to DO, not just information
+- Confidence score should be 70+ for clear action items, lower for implied tasks
+- For due dates, parse relative dates (tomorrow, next week) into actual dates
+- Priority should reflect both urgency and importance
+- Include WHO needs to do WHAT by WHEN in the description when possible
+
+Return ONLY valid JSON, no additional text."""
+
+            # Call Claude API
+            response_text = await self._call_anthropic(prompt, max_tokens=1000, temperature=0.3)
+            
+            # Parse JSON response
+            try:
+                # Try to extract JSON from response
+                import re
+                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                if json_match:
+                    result = json.loads(json_match.group())
+                else:
+                    result = json.loads(response_text)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse SAIG response for urgent email: {e}")
+                logger.error(f"Response was: {response_text}")
+                
+                # Return default structure on parse error
+                return {
+                    "is_truly_urgent": True,  # Err on side of caution
+                    "urgency_confirmation_reason": "Unable to fully analyze, treating as urgent",
+                    "action_items": [],
+                    "summary": "Analysis failed - please review email manually"
+                }
+            
+            # Validate and clean action items
+            cleaned_action_items = []
+            for item in result.get('action_items', []):
+                if item.get('confidence', 0) >= 70:  # Only high-confidence items
+                    # Parse due date if it's a string
+                    due_date = item.get('due_date')
+                    if due_date and isinstance(due_date, str):
+                        try:
+                            # Try to parse ISO format
+                            due_date = datetime.fromisoformat(due_date.replace('Z', '+00:00'))
+                        except:
+                            due_date = None
+                    
+                    cleaned_item = {
+                        'title': item.get('title', 'Untitled Task'),
+                        'description': item.get('description', ''),
+                        'due_date': due_date,
+                        'priority': item.get('priority', 'medium'),
+                        'confidence': item.get('confidence', 70),
+                        'source_quote': item.get('source_quote', '')
+                    }
+                    cleaned_action_items.append(cleaned_item)
+            
+            result['action_items'] = cleaned_action_items
+            
+            # Log analysis result
+            logger.info(f"Analyzed urgent email {email.id}: {len(cleaned_action_items)} action items found")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error analyzing urgent email: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            
+            return {
+                "is_truly_urgent": True,  # Err on side of caution
+                "urgency_confirmation_reason": f"Analysis error: {str(e)}",
+                "action_items": [],
+                "summary": "Unable to analyze email - please review manually"
+            }
     
     def _get_help_message(self) -> str:
         return """I'm SAIG, your email assistant. Here's what I can help you with:

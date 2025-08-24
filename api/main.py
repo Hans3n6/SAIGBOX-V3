@@ -119,7 +119,13 @@ async def auth_page(request: Request, current_user: Optional[User] = Depends(get
 @app.get("/api/auth/check")
 async def check_auth(current_user: Optional[User] = Depends(get_current_user_optional)):
     """Check if user is authenticated"""
-    return {"authenticated": current_user is not None}
+    if current_user:
+        return {
+            "authenticated": True,
+            "email": current_user.email,
+            "name": current_user.name
+        }
+    return {"authenticated": False}
 
 @app.get("/api/auth/google/url")
 async def get_google_auth_url():

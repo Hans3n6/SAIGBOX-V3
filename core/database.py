@@ -73,6 +73,15 @@ class Email(Base):
     attachments = Column(JSON)
     received_at = Column(DateTime)
     deleted_at = Column(DateTime, nullable=True)
+    
+    # Urgency fields
+    is_urgent = Column(Boolean, default=False, index=True)
+    urgency_score = Column(Integer, default=0)  # 0-100 scale
+    urgency_reason = Column(String)  # Why it was marked urgent
+    urgency_analyzed_at = Column(DateTime, nullable=True)
+    auto_actions_created = Column(Boolean, default=False)
+    action_count = Column(Integer, default=0)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -90,6 +99,9 @@ class ActionItem(Base):
     due_date = Column(DateTime, nullable=True)
     priority = Column(Integer, default=2)  # 1=High, 2=Medium, 3=Low
     status = Column(String, default="pending")  # pending, completed, overdue
+    auto_created = Column(Boolean, default=False)  # True if created by AI
+    confidence_score = Column(Integer, nullable=True)  # AI confidence 0-100
+    source_quote = Column(Text, nullable=True)  # Text that triggered this action
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -154,6 +166,22 @@ class ChatHistory(Base):
     role = Column(String, nullable=False)  # user, assistant
     message = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class UrgencyPattern(Base):
+    __tablename__ = "urgency_patterns"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    pattern_type = Column(String)  # 'sender', 'keyword', 'domain'
+    pattern_value = Column(String)
+    times_marked_urgent = Column(Integer, default=0)
+    times_marked_not_urgent = Column(Integer, default=0)
+    is_vip = Column(Boolean, default=False)
+    is_ignored = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    user = relationship("User")
 
 # Create all tables
 Base.metadata.create_all(bind=engine)

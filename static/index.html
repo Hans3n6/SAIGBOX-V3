@@ -6,7 +6,15 @@
     <title>SAIGBOX V3 - Email Management Platform</title>
     <link rel="icon" type="image/svg+xml" href="/static/saigbox-favicon.svg">
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <!-- Tailwind CSS CDN - For development only -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Suppress Tailwind CDN warning in console
+        tailwind.config = { 
+            darkMode: 'class',
+            silent: true 
+        }
+    </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/static/saig-colors.css">
     <style>
@@ -15,6 +23,26 @@
         }
         .chat-container {
             transition: all 0.3s ease;
+        }
+        .urgent-email {
+            border-left: 3px solid #ef4444 !important;
+            background-color: rgba(239, 68, 68, 0.05);
+        }
+        .urgent-email:hover {
+            background-color: rgba(239, 68, 68, 0.1);
+        }
+        .urgent-indicator {
+            color: #ef4444;
+            margin-right: 8px;
+        }
+        .auto-action-badge {
+            background-color: #10b981;
+            color: white;
+            font-size: 0.75rem;
+            padding: 0.125rem 0.5rem;
+            border-radius: 9999px;
+            display: inline-block;
+            margin-top: 0.25rem;
         }
         .loader {
             border: 3px solid #f3f4f6;
@@ -39,6 +67,15 @@
             background-color: #f9fafb;
             transition: background-color 0.2s;
         }
+        /* Prevent horizontal scrolling in email list */
+        #email-list {
+            overflow-x: hidden;
+            width: 100%;
+        }
+        .email-item {
+            overflow-x: hidden;
+            word-wrap: break-word;
+        }
         .rotate-180 {
             transform: rotate(180deg);
         }
@@ -54,7 +91,9 @@
         <div class="w-64 text-white" style="background-color: #7fc97f;">
             <div class="p-6">
                 <div class="flex flex-col items-center">
-                    <i class="fas fa-leaf text-5xl text-white mb-3"></i>
+                    <svg class="w-16 h-16 text-white mb-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512" fill="currentColor">
+                        <path d="M546.2 9.7c-5.6-12.5-21.6-13-28.3-1.2C486.9 62.4 431.4 96 368 96h-80C182 96 96 182 96 288c0 7 .8 13.7 1.5 20.5C161.3 262.8 253.4 224 384 224c8.8 0 16 7.2 16 16s-7.2 16-16 16C132.6 256 26 410.1 2.4 468c-6.6 16.3 1.2 34.9 17.5 41.6 16.4 6.8 35-1.1 41.8-17.3 1.5-3.6 20.9-47.9 71.9-90.6 32.4 43.9 94 85.8 174.9 77.2C465.5 467.5 576 326.7 576 154.3c0-50.2-10.8-102.2-29.8-144.6z"/>
+                    </svg>
                     <h1 class="text-2xl font-bold text-white">SAIGBOX</h1>
                 </div>
             </div>
@@ -127,8 +166,29 @@
                 <div id="inbox-view" class="h-full flex">
                     <!-- Email List -->
                     <div class="w-1/3 border-r overflow-y-auto">
-                        <div id="email-list" class="divide-y">
+                        <!-- Filter Bar -->
+                        <div class="bg-gray-50 border-b px-4 py-2 flex items-center space-x-2">
+                            <button onclick="filterEmails('all')" id="filter-all" class="filter-btn px-3 py-1 rounded text-sm font-medium bg-blue-500 text-white">Inbox</button>
+                            <button onclick="filterEmails('unread')" id="filter-unread" class="filter-btn px-3 py-1 rounded text-sm font-medium text-gray-700 hover:bg-gray-200">Unread</button>
+                            <button onclick="filterEmails('urgent')" id="filter-urgent" class="filter-btn px-3 py-1 rounded text-sm font-medium text-gray-700 hover:bg-gray-200">
+                                <i class="fas fa-exclamation-circle mr-1"></i>Urgent
+                                <span id="urgent-badge" class="ml-1 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full hidden">0</span>
+                            </button>
+                            <button onclick="filterEmails('starred')" id="filter-starred" class="filter-btn px-3 py-1 rounded text-sm font-medium text-gray-700 hover:bg-gray-200">Starred</button>
+                            <button onclick="filterEmails('sent')" id="filter-sent" class="filter-btn px-3 py-1 rounded text-sm font-medium text-gray-700 hover:bg-gray-200">
+                                <i class="fas fa-paper-plane mr-1"></i>Sent
+                            </button>
+                        </div>
+                        <div id="email-list" class="divide-y overflow-x-hidden" style="width: 100%;">
                             <!-- Emails will be loaded here -->
+                        </div>
+                        <div id="load-more-section" class="p-4 text-center border-t">
+                            <button id="load-more-btn" onclick="loadMoreEmailsFromDB()" class="hidden px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                                Load More Emails
+                            </button>
+                            <div id="no-more-emails" class="hidden text-gray-500 text-sm">
+                                No more emails to load
+                            </div>
                         </div>
                         <div id="email-loader" class="hidden p-4 text-center">
                             <div class="loader mx-auto"></div>
@@ -259,9 +319,12 @@
             <i class="fas fa-leaf text-xl" style="color: white;"></i>
         </button>
         
-        <!-- Chat Container -->
-        <div id="chat-container" class="hidden absolute bottom-16 right-0 w-96 bg-white rounded-lg shadow-2xl chat-container">
-            <div class="text-white p-4 rounded-t-lg flex justify-between items-center" style="background: linear-gradient(135deg, #7fc97f 0%, #6db56d 100%);">
+        <!-- Chat Container (Draggable and Resizable) -->
+        <div id="chat-container" class="hidden fixed bg-white rounded-lg shadow-2xl chat-container" 
+             style="width: 400px; height: 500px; bottom: 80px; right: 20px; resize: both; overflow: hidden; min-width: 300px; min-height: 400px;">
+            <div class="text-white p-4 rounded-t-lg flex justify-between items-center cursor-move" 
+                 id="chat-header"
+                 style="background: linear-gradient(135deg, #7fc97f 0%, #6db56d 100%);">
                 <div class="flex items-center space-x-2">
                     <div class="w-8 h-8 rounded-full flex items-center justify-center" style="background-color: rgba(255,255,255,0.3);">
                         <i class="fas fa-leaf text-sm"></i>
@@ -275,7 +338,7 @@
                 </button>
             </div>
             
-            <div id="chat-messages" class="h-96 overflow-y-auto p-4 space-y-3">
+            <div id="chat-messages" class="overflow-y-auto p-4 space-y-3" style="height: calc(100% - 120px);">
                 <div class="bg-gray-100 rounded-lg p-3 max-w-[80%]">
                     <p class="text-sm">Hi! I'm SAIG, your email assistant. How can I help you today?</p>
                 </div>
@@ -453,6 +516,10 @@
         let hasMoreEmails = true;
         let totalEmailsLoaded = 0;
         let syncQueue = [];
+        let userEmail = '';  // Store user's email address
+        
+        // Store current search query globally
+        let currentSearchQuery = '';
         let isSyncing = false;
         
         // Global navigation function
@@ -545,8 +612,85 @@
         `;
         document.head.appendChild(style);
         
+        // Push Notification Functions
+        async function initializePushNotifications() {
+            if ('Notification' in window) {
+                if (Notification.permission === 'default') {
+                    const permission = await Notification.requestPermission();
+                    localStorage.setItem('notificationPermission', permission);
+                    if (permission === 'granted') {
+                        showNotification('Push notifications enabled for urgent emails!', 'success');
+                    }
+                } else if (Notification.permission === 'granted') {
+                    console.log('Push notifications already enabled');
+                }
+            } else {
+                console.log('Browser does not support notifications');
+            }
+        }
+        
+        function sendActionItemNotification(email, actionItems) {
+            if (!('Notification' in window) || Notification.permission !== 'granted') {
+                return;
+            }
+            
+            const notification = new Notification('📋 SAIGBOX: New Action Items', {
+                body: `Created ${actionItems.length} task(s) from: ${email.subject || 'Urgent Email'}`,
+                icon: '/static/saigbox-logo.svg',
+                badge: '/static/saigbox-logo.svg',
+                tag: `actions-${email.id}`,
+                requireInteraction: false,
+                silent: false
+            });
+            
+            notification.onclick = function() {
+                window.focus();
+                switchView('actions');
+                notification.close();
+            };
+            
+            // Auto-close after 5 seconds
+            setTimeout(() => notification.close(), 5000);
+        }
+        
+        function handleActionItemsCreated(data) {
+            const { email, action_items } = data;
+            
+            // Update email in local state
+            const emailIndex = emails.findIndex(e => e.id === email.id);
+            if (emailIndex !== -1) {
+                emails[emailIndex].auto_actions_created = true;
+                emails[emailIndex].action_count = action_items.length;
+            }
+            
+            // Send push notification
+            sendActionItemNotification(email, action_items);
+            
+            // Update UI counts
+            updateUrgentCount();
+            loadActionItems(); // Refresh action items list
+            
+            // Show in-app toast as backup
+            showNotification(
+                `Created ${action_items.length} action item(s) from urgent email: ${email.subject}`, 
+                'success'
+            );
+            
+            // Re-render email list if in inbox view
+            if (currentView === 'inbox') {
+                if (currentFilter === 'urgent') {
+                    filterEmails('urgent');
+                } else {
+                    renderEmailList(emails);
+                }
+            }
+        }
+        
         // Initialize
         document.addEventListener('DOMContentLoaded', async function() {
+            // Initialize push notifications
+            await initializePushNotifications();
+            
             // First check if user is authenticated via session cookie
             try {
                 const authCheckResponse = await fetch('/api/auth/check', {
@@ -558,6 +702,7 @@
                     if (authData.authenticated) {
                         // User is authenticated via session
                         authToken = localStorage.getItem('authToken') || 'session';
+                        userEmail = authData.email || '';
                         init();
                         return;
                     }
@@ -587,6 +732,8 @@
                             }
                         });
                         if (response.ok) {
+                            const userData = await response.json();
+                            userEmail = userData.email || '';
                             init();
                         } else {
                             // Token is invalid, redirect to login
@@ -616,14 +763,22 @@
             const clearBtn = document.getElementById('clear-search');
             
             searchInput.addEventListener('input', function(e) {
-                // Show/hide clear button
+                // Only show/hide clear button, don't trigger search or reload
                 if (e.target.value.trim()) {
                     clearBtn.classList.remove('hidden');
                 } else {
                     clearBtn.classList.add('hidden');
+                    // Don't automatically reload emails here
+                    // User must explicitly clear search or press Enter
                 }
-                // Debounced search
-                debounce(searchEmails, 500)();
+            });
+            
+            // Only search when Enter is pressed
+            searchInput.addEventListener('keypress', function(event) {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    searchEmails();
+                }
             });
         }
         
@@ -633,6 +788,7 @@
             
             searchInput.value = '';
             clearBtn.classList.add('hidden');
+            currentSearchQuery = '';
             loadEmails();
         }
         
@@ -641,44 +797,55 @@
             if (!emailList) return;
             
             const container = emailList.parentElement;
-            container.addEventListener('scroll', () => {
+            
+            // More aggressive scroll detection
+            const checkScroll = () => {
                 const scrollTop = container.scrollTop;
                 const scrollHeight = container.scrollHeight;
                 const clientHeight = container.clientHeight;
                 
-                // Check if we're near the bottom (within 200px)
-                if (scrollHeight - scrollTop <= clientHeight + 200) {
-                    // Count visible emails
-                    const visibleEmails = Math.floor((scrollTop + clientHeight) / 80); // Assuming ~80px per email
-                    
-                    // Check if we need to load more emails
-                    if (visibleEmails > emails.length - 10 && !isLoading && hasMoreEmails) {
-                        checkAndLoadMoreEmails();
+                // Check if we're near the bottom (within 500px - more aggressive)
+                if (scrollHeight - scrollTop <= clientHeight + 500) {
+                    if (!isLoading && hasMoreEmails) {
+                        console.log('Loading more emails...', { currentPage, hasMoreEmails });
+                        loadMoreEmailsFromDB();
                     }
                 }
-            });
+                
+                // Also check if container is not full (for initial load)
+                if (scrollHeight <= clientHeight + 100 && !isLoading && hasMoreEmails) {
+                    console.log('Container not full, loading more...', { scrollHeight, clientHeight });
+                    setTimeout(() => loadMoreEmailsFromDB(), 500);
+                }
+            };
+            
+            // Add scroll listener
+            container.addEventListener('scroll', checkScroll);
+            
+            // Also check periodically in case scroll doesn't trigger
+            setInterval(() => {
+                if (currentView === 'inbox' && hasMoreEmails && !isLoading) {
+                    checkScroll();
+                }
+            }, 2000);
+            
+            // Initial check after a short delay
+            setTimeout(checkScroll, 1000);
         }
         
         async function checkAndLoadMoreEmails() {
-            // Check current email count in database
-            const dbEmailCount = emails.length;
-            const neededEmails = dbEmailCount + 50;
-            
-            // If we have less than needed emails in DB, sync more from Gmail
-            if (totalEmailsLoaded < neededEmails) {
-                queueEmailSync(50);
-            } else {
-                // Load next page from database
+            // Simplified - just load more from DB
+            if (!isLoading && hasMoreEmails) {
                 loadMoreEmailsFromDB();
             }
         }
         
         function queueEmailSync(count) {
             syncQueue.push(count);
-            processeSyncQueue();
+            processSyncQueue();
         }
         
-        async function processeSyncQueue() {
+        async function processSyncQueue() {
             if (isSyncing || syncQueue.length === 0) return;
             
             isSyncing = true;
@@ -712,36 +879,27 @@
         }
         
         async function loadMoreEmailsFromDB() {
-            if (isLoading) return;
+            if (isLoading || !hasMoreEmails) return;
             
             isLoading = true;
             showLoader('email-loader');
+            document.getElementById('load-more-btn').classList.add('hidden');
             
             try {
-                currentPage++;
-                const response = await fetch(`/api/emails?page=${currentPage}&limit=50`, {
-                    headers: authToken !== 'session' ? {
-                        'Authorization': `Bearer ${authToken}`
-                    } : {},
-                    credentials: 'include'
-                });
+                // Load next page with append flag
+                await loadEmails(currentPage + 1, true);
                 
-                if (response.ok) {
-                    const data = await response.json();
-                    
-                    if (data.emails.length > 0) {
-                        emails = [...emails, ...data.emails];
-                        appendEmailsToList(data.emails);
-                    } else {
-                        hasMoreEmails = false;
-                    }
-                    
-                    if (!data.has_next) {
-                        hasMoreEmails = false;
-                    }
+                // Update button visibility
+                if (hasMoreEmails) {
+                    document.getElementById('load-more-btn').classList.remove('hidden');
+                    document.getElementById('no-more-emails').classList.add('hidden');
+                } else {
+                    document.getElementById('load-more-btn').classList.add('hidden');
+                    document.getElementById('no-more-emails').classList.remove('hidden');
                 }
             } catch (error) {
                 console.error('Error loading more emails:', error);
+                document.getElementById('load-more-btn').classList.remove('hidden');
             } finally {
                 isLoading = false;
                 hideLoader('email-loader');
@@ -760,30 +918,191 @@
             };
         }
         
-        async function loadEmails(page = 1) {
+        async function loadEmails(page = 1, append = false) {
             try {
-                showLoader('email-loader');
-                const response = await fetch(`/api/emails?page=${page}&limit=50`, {
-                    headers: authToken !== 'session' ? {
-                        'Authorization': `Bearer ${authToken}`
-                    } : {},
-                    credentials: 'include'
-                });
+                if (!append) {
+                    showLoader('email-loader');
+                }
                 
-                if (!response.ok) throw new Error('Failed to load emails');
+                // Load both inbox and sent emails
+                const [inboxResponse, sentResponse] = await Promise.all([
+                    fetch(`/api/emails?page=${page}&limit=50`, {
+                        headers: authToken !== 'session' ? {
+                            'Authorization': `Bearer ${authToken}`
+                        } : {},
+                        credentials: 'include'
+                    }),
+                    fetch(`/api/emails/sent?page=${page}&limit=50`, {
+                        headers: authToken !== 'session' ? {
+                            'Authorization': `Bearer ${authToken}`
+                        } : {},
+                        credentials: 'include'
+                    })
+                ]);
                 
-                const data = await response.json();
-                emails = data.emails;
+                if (!inboxResponse.ok) throw new Error('Failed to load emails');
+                
+                const inboxData = await inboxResponse.json();
+                let newEmails = inboxData.emails || [];
+                
+                // Add sent emails if the endpoint exists and returns data
+                if (sentResponse.ok) {
+                    const sentData = await sentResponse.json();
+                    const sentEmails = sentData.emails || [];
+                    // Merge and deduplicate based on email ID
+                    const emailIds = new Set(newEmails.map(e => e.id));
+                    sentEmails.forEach(email => {
+                        if (!emailIds.has(email.id)) {
+                            newEmails.push(email);
+                        }
+                    });
+                }
+                
+                if (append) {
+                    // Append to existing emails
+                    const existingIds = new Set(emails.map(e => e.id));
+                    const uniqueNewEmails = newEmails.filter(e => !existingIds.has(e.id));
+                    emails = [...emails, ...uniqueNewEmails];
+                    
+                    // Apply filter and append to view
+                    let filteredNewEmails;
+                    switch(currentFilter) {
+                        case 'sent':
+                            filteredNewEmails = uniqueNewEmails.filter(e => e.sender && e.sender.toLowerCase() === userEmail.toLowerCase());
+                            break;
+                        case 'urgent':
+                            filteredNewEmails = uniqueNewEmails.filter(e => e.is_urgent && (!e.sender || e.sender.toLowerCase() !== userEmail.toLowerCase()));
+                            break;
+                        case 'unread':
+                            filteredNewEmails = uniqueNewEmails.filter(e => !e.is_read && (!e.sender || e.sender.toLowerCase() !== userEmail.toLowerCase()));
+                            break;
+                        case 'starred':
+                            filteredNewEmails = uniqueNewEmails.filter(e => e.is_starred && (!e.sender || e.sender.toLowerCase() !== userEmail.toLowerCase()));
+                            break;
+                        default:
+                            filteredNewEmails = uniqueNewEmails.filter(e => !e.sender || e.sender.toLowerCase() !== userEmail.toLowerCase());
+                    }
+                    appendEmailsToList(filteredNewEmails);
+                } else {
+                    // Replace emails (initial load)
+                    emails = newEmails;
+                    
+                    // Apply current filter
+                    if (currentFilter && currentFilter !== 'all') {
+                        filterEmails(currentFilter);
+                    } else {
+                        // Default to inbox view (excluding sent)
+                        const inboxEmails = emails.filter(e => !e.sender || e.sender.toLowerCase() !== userEmail.toLowerCase());
+                        renderEmailList(inboxEmails);
+                    }
+                }
+                
                 currentPage = page;
-                totalEmailsLoaded = data.total || emails.length;
-                hasMoreEmails = data.has_next;
+                totalEmailsLoaded = emails.length;
+                hasMoreEmails = inboxData.has_next;
                 
-                renderEmailList(emails);
+                // Update load more button visibility
+                const loadMoreBtn = document.getElementById('load-more-btn');
+                const noMoreEmails = document.getElementById('no-more-emails');
+                if (loadMoreBtn && noMoreEmails) {
+                    if (hasMoreEmails) {
+                        loadMoreBtn.classList.remove('hidden');
+                        noMoreEmails.classList.add('hidden');
+                    } else {
+                        loadMoreBtn.classList.add('hidden');
+                        noMoreEmails.classList.remove('hidden');
+                    }
+                }
+                
                 updateUnreadCount();
+                updateUrgentCount();
                 hideLoader('email-loader');
             } catch (error) {
                 console.error('Error loading emails:', error);
                 hideLoader('email-loader');
+            }
+        }
+        
+        let currentFilter = 'all';
+        let filteredEmails = [];
+        
+        function filterEmails(filterType) {
+            currentFilter = filterType;
+            
+            // First ensure we're in inbox view
+            switchView('inbox');
+            
+            // Apply filter
+            switch(filterType) {
+                case 'sent':
+                    // Show only emails sent by the user
+                    filteredEmails = emails.filter(e => e.sender && e.sender.toLowerCase() === userEmail.toLowerCase());
+                    updateInboxHeader('Sent Mail', `${filteredEmails.length} sent email(s)`);
+                    break;
+                case 'urgent':
+                    // Exclude sent emails from urgent filter
+                    filteredEmails = emails.filter(e => e.is_urgent && (!e.sender || e.sender.toLowerCase() !== userEmail.toLowerCase()));
+                    updateInboxHeader('Urgent Emails', `${filteredEmails.length} urgent email(s)`);
+                    break;
+                case 'unread':
+                    // Exclude sent emails from unread filter
+                    filteredEmails = emails.filter(e => !e.is_read && (!e.sender || e.sender.toLowerCase() !== userEmail.toLowerCase()));
+                    updateInboxHeader('Unread Emails', `${filteredEmails.length} unread email(s)`);
+                    break;
+                case 'starred':
+                    // Exclude sent emails from starred filter
+                    filteredEmails = emails.filter(e => e.is_starred && (!e.sender || e.sender.toLowerCase() !== userEmail.toLowerCase()));
+                    updateInboxHeader('Starred Emails', `${filteredEmails.length} starred email(s)`);
+                    break;
+                case 'all':
+                default:
+                    filterType = 'all';
+                    // Exclude sent emails from inbox (all) filter
+                    filteredEmails = emails.filter(e => !e.sender || e.sender.toLowerCase() !== userEmail.toLowerCase());
+                    updateInboxHeader('Inbox', `${filteredEmails.length} email(s)`);
+            }
+            
+            renderEmailList(filteredEmails);
+            
+            // Update filter button styling
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('bg-blue-500', 'text-white');
+                btn.classList.add('text-gray-700', 'hover:bg-gray-200');
+            });
+            
+            const activeBtn = document.getElementById(`filter-${filterType}`);
+            if (activeBtn) {
+                activeBtn.classList.remove('text-gray-700', 'hover:bg-gray-200');
+                activeBtn.classList.add('bg-blue-500', 'text-white');
+            }
+            
+            // Update navigation highlighting
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.style.backgroundColor = 'transparent';
+            });
+        }
+        
+        function updateInboxHeader(title, subtitle) {
+            const headerEl = document.querySelector('#inbox-view h2');
+            if (headerEl) {
+                headerEl.innerHTML = `
+                    ${title}
+                    ${subtitle ? `<span class="text-sm text-gray-600 ml-2">${subtitle}</span>` : ''}
+                `;
+            }
+        }
+        
+        function updateUrgentCount() {
+            const urgentUnread = emails.filter(e => e.is_urgent && !e.is_read).length;
+            const urgentBadge = document.getElementById('urgent-badge');
+            
+            if (urgentBadge) {
+                if (urgentUnread > 0) {
+                    urgentBadge.textContent = urgentUnread;
+                    urgentBadge.classList.remove('hidden');
+                } else {
+                    urgentBadge.classList.add('hidden');
+                }
             }
         }
         
@@ -819,16 +1138,22 @@
             }
             
             listEl.innerHTML = emailList.map(email => `
-                <div onclick="selectEmail('${email.id}')" class="email-item p-4 cursor-pointer ${!email.is_read ? 'bg-blue-50' : ''}">
-                    <div class="flex justify-between items-start mb-1">
-                        <span class="font-medium text-sm ${!email.is_read ? 'font-semibold' : ''}">${email.sender_name || email.sender}</span>
-                        <span class="text-xs text-gray-500">${formatDate(email.received_at)}</span>
-                    </div>
-                    <div class="text-sm font-medium mb-1">${email.subject || '(No subject)'}</div>
-                    <div class="text-xs text-gray-600 truncate">${email.snippet || ''}</div>
-                    <div class="flex items-center mt-2 space-x-2">
-                        ${email.is_starred ? '<i class="fas fa-star text-yellow-500 text-xs"></i>' : ''}
-                        ${email.has_attachments ? '<i class="fas fa-paperclip text-gray-400 text-xs"></i>' : ''}
+                <div onclick="selectEmail('${email.id}')" class="email-item p-4 cursor-pointer ${!email.is_read ? 'bg-blue-50' : ''} ${email.is_urgent ? 'urgent-email' : ''}" style="overflow-x: hidden;">
+                    <div class="flex items-start">
+                        ${email.is_urgent ? '<i class="fas fa-exclamation-circle urgent-indicator mt-1"></i>' : ''}
+                        <div class="flex-1 min-w-0">
+                            <div class="flex justify-between items-start mb-1 gap-2">
+                                <span class="font-medium text-sm ${!email.is_read ? 'font-semibold' : ''} truncate flex-1">${email.sender_name || email.sender}</span>
+                                <span class="text-xs text-gray-500 whitespace-nowrap">${formatDate(email.received_at)}</span>
+                            </div>
+                            <div class="text-sm font-medium mb-1 truncate">${email.subject || '(No subject)'}</div>
+                            <div class="text-xs text-gray-600 truncate">${email.snippet || ''}</div>
+                            <div class="flex items-center mt-2 space-x-2">
+                                ${email.is_starred ? '<i class="fas fa-star text-yellow-500 text-xs"></i>' : ''}
+                                ${email.has_attachments ? '<i class="fas fa-paperclip text-gray-400 text-xs"></i>' : ''}
+                                ${email.auto_actions_created ? `<span class="auto-action-badge"><i class="fas fa-tasks text-xs mr-1"></i>${email.action_count || 0} action(s) created</span>` : ''}
+                            </div>
+                        </div>
                     </div>
                 </div>
             `).join('');
@@ -856,6 +1181,9 @@
                         <div class="flex justify-between items-start mb-4">
                             <h2 class="text-xl font-semibold">${email.subject || '(No subject)'}</h2>
                             <div class="flex space-x-2">
+                                <button onclick="toggleUrgency('${emailId}')" class="text-gray-500 hover:text-red-500" title="${email.is_urgent ? 'Mark as not urgent' : 'Mark as urgent'}">
+                                    <i class="fas fa-exclamation-circle ${email.is_urgent ? 'text-red-500' : ''}"></i>
+                                </button>
                                 <button onclick="toggleStar('${emailId}')" class="text-gray-500 hover:text-yellow-500">
                                     <i class="fas fa-star ${email.is_starred ? 'text-yellow-500' : ''}"></i>
                                 </button>
@@ -974,6 +1302,57 @@
             }
         }
         
+        async function toggleUrgency(emailId) {
+            const email = emails.find(e => e.id === emailId);
+            if (!email) return;
+            
+            const newStatus = !email.is_urgent;
+            
+            try {
+                const response = await fetch(`/api/emails/${emailId}/urgency`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(authToken !== 'session' ? { 'Authorization': `Bearer ${authToken}` } : {})
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({ is_urgent: newStatus })
+                });
+                
+                if (response.ok) {
+                    // Update local state
+                    email.is_urgent = newStatus;
+                    
+                    // Learn from correction
+                    await fetch('/api/emails/urgency/learn', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(authToken !== 'session' ? { 'Authorization': `Bearer ${authToken}` } : {})
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify({
+                            email_id: emailId,
+                            corrected_to: newStatus
+                        })
+                    });
+                    
+                    // Update UI
+                    renderEmailList(currentFilter === 'urgent' ? emails.filter(e => e.is_urgent) : emails);
+                    updateUrgentCount();
+                    selectEmail(emailId); // Refresh detail view
+                    
+                    showNotification(
+                        newStatus ? 'Email marked as urgent' : 'Email marked as not urgent',
+                        'success'
+                    );
+                }
+            } catch (error) {
+                console.error('Error toggling urgency:', error);
+                showNotification('Failed to update urgency status', 'error');
+            }
+        }
+        
         async function syncEmails() {
             try {
                 const syncBtn = document.querySelector('.fa-sync-alt');
@@ -988,7 +1367,20 @@
                 });
                 
                 if (response.ok) {
+                    const result = await response.json();
                     await loadEmails();
+                    
+                    // Show sync results
+                    let message = `Synced ${result.synced || 0} new email(s)`;
+                    if (result.urgent > 0) {
+                        message += `, ${result.urgent} marked as urgent`;
+                    }
+                    showNotification(message, 'success');
+                    
+                    // Update counts
+                    updateUrgentCount();
+                } else {
+                    showNotification('Failed to sync emails', 'error');
                 }
                 
                 syncBtn.classList.remove('fa-spin');
@@ -1003,10 +1395,13 @@
             const searchInput = document.getElementById('search-input');
             
             if (!query) {
-                // If search is cleared, reload all emails
-                await loadEmails();
+                // Don't reload automatically when search is empty
+                // User must explicitly clear the search
                 return;
             }
+            
+            // Store the current search query
+            currentSearchQuery = query;
             
             // Show loading state
             searchInput.disabled = true;
@@ -1161,23 +1556,6 @@
             document.getElementById('action-count').textContent = actions.filter(a => a.status === 'pending').length;
         }
         
-        async function loadHuddles() {
-            try {
-                const response = await fetch('/api/huddles', {
-                    headers: {
-                        'Authorization': `Bearer ${authToken}`
-                    }
-                });
-                
-                if (response.ok) {
-                    const huddles = await response.json();
-                    renderHuddles(huddles);
-                }
-            } catch (error) {
-                console.error('Error loading huddles:', error);
-            }
-        }
-        
         function renderHuddles(huddles) {
             const listEl = document.getElementById('huddle-list');
             
@@ -1246,6 +1624,75 @@
         function toggleChat() {
             const container = document.getElementById('chat-container');
             container.classList.toggle('hidden');
+            if (!container.classList.contains('hidden')) {
+                initializeDraggable();
+            }
+        }
+        
+        // Make SAIG chat draggable
+        function initializeDraggable() {
+            const chatContainer = document.getElementById('chat-container');
+            const chatHeader = document.getElementById('chat-header');
+            
+            let isDragging = false;
+            let currentX;
+            let currentY;
+            let initialX;
+            let initialY;
+            let xOffset = 0;
+            let yOffset = 0;
+            
+            // Get current position if already set
+            const rect = chatContainer.getBoundingClientRect();
+            xOffset = rect.left;
+            yOffset = rect.top;
+            
+            chatHeader.addEventListener('mousedown', dragStart);
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('mouseup', dragEnd);
+            
+            function dragStart(e) {
+                if (e.target.closest('button')) return; // Don't drag when clicking close button
+                
+                initialX = e.clientX - xOffset;
+                initialY = e.clientY - yOffset;
+                
+                if (e.target === chatHeader || chatHeader.contains(e.target)) {
+                    isDragging = true;
+                    chatContainer.style.transition = 'none';
+                }
+            }
+            
+            function drag(e) {
+                if (isDragging) {
+                    e.preventDefault();
+                    currentX = e.clientX - initialX;
+                    currentY = e.clientY - initialY;
+                    
+                    xOffset = currentX;
+                    yOffset = currentY;
+                    
+                    // Ensure the chat doesn't go off screen
+                    const maxX = window.innerWidth - chatContainer.offsetWidth;
+                    const maxY = window.innerHeight - chatContainer.offsetHeight;
+                    
+                    currentX = Math.min(Math.max(0, currentX), maxX);
+                    currentY = Math.min(Math.max(0, currentY), maxY);
+                    
+                    chatContainer.style.transform = 'none';
+                    chatContainer.style.left = currentX + 'px';
+                    chatContainer.style.top = currentY + 'px';
+                    chatContainer.style.bottom = 'auto';
+                    chatContainer.style.right = 'auto';
+                }
+            }
+            
+            function dragEnd(e) {
+                initialX = currentX;
+                initialY = currentY;
+                isDragging = false;
+                chatContainer.style.transition = '';
+            }
         }
         
         async function sendMessage() {
@@ -2131,7 +2578,19 @@ Generate a thoughtful and contextually appropriate response that:
                     credentials: 'include',
                     body: JSON.stringify({
                         message: message,
-                        context: { email_id: emailId }
+                        context: { 
+                            email_id: emailId,
+                            selected_email: {
+                                id: email.id,
+                                gmail_id: email.gmail_id,
+                                thread_id: email.thread_id,
+                                subject: email.subject,
+                                sender: email.sender,
+                                sender_name: email.sender_name,
+                                body: email.body_text || email.body_html || email.snippet,
+                                received_at: email.received_at
+                            }
+                        }
                     })
                 });
                 
@@ -2282,6 +2741,15 @@ Generate a thoughtful and contextually appropriate response that:
         
         async function sendDraftEmail(recipient, subject, body) {
             try {
+                // Close any open compose modal first
+                const composeModal = document.getElementById('composeModal');
+                if (composeModal) {
+                    composeModal.classList.add('hidden');
+                }
+                
+                // Show sending status in SAIG chat
+                addChatMessage('📤 Sending email...', 'assistant');
+                
                 const response = await fetch('/api/emails/compose', {
                     method: 'POST',
                     headers: authToken !== 'session' ? {
@@ -2299,17 +2767,27 @@ Generate a thoughtful and contextually appropriate response that:
                 });
                 
                 if (response.ok) {
-                    addChatMessage('✅ Email sent successfully!', 'assistant');
+                    // Success confirmation in SAIG chat
+                    addChatMessage(`✅ Email sent successfully to ${recipient}!\n\n📧 Subject: "${subject}"\n\nThe email has been delivered and will appear in your sent folder.`, 'assistant');
+                    
+                    // Clear the email draft from chat if it exists
+                    const draftElements = document.querySelectorAll('.bg-gray-50.border-l-4.border-blue-400');
+                    draftElements.forEach(el => {
+                        if (el.textContent.includes(subject)) {
+                            el.parentElement.remove();
+                        }
+                    });
+                    
                     await loadEmails();
                     showNotification('Email sent successfully!', 'success');
                 } else {
                     const error = await response.json();
-                    addChatMessage(`❌ Failed to send email: ${error.detail || 'Unknown error'}`, 'assistant');
+                    addChatMessage(`❌ Failed to send email: ${error.detail || 'Unknown error'}\n\nPlease try again or edit the draft.`, 'assistant');
                     showNotification('Failed to send email', 'error');
                 }
             } catch (error) {
                 console.error('Error sending draft email:', error);
-                addChatMessage('❌ Failed to send email due to connection error.', 'assistant');
+                addChatMessage('❌ Failed to send email due to connection error. Please check your connection and try again.', 'assistant');
                 showNotification('Failed to send email', 'error');
             }
         }
@@ -2322,14 +2800,23 @@ Generate a thoughtful and contextually appropriate response that:
             const diff = now - date;
             const days = Math.floor(diff / (1000 * 60 * 60 * 24));
             
+            const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+            
             if (days === 0) {
-                return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+                return `Today, ${timeStr}`;
             } else if (days === 1) {
-                return 'Yesterday';
+                return `Yesterday, ${timeStr}`;
             } else if (days < 7) {
-                return date.toLocaleDateString('en-US', { weekday: 'short' });
+                const dayStr = date.toLocaleDateString('en-US', { weekday: 'short' });
+                return `${dayStr}, ${timeStr}`;
+            } else if (date.getFullYear() === now.getFullYear()) {
+                // Same year - show month, day, and time
+                const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                return `${dateStr}, ${timeStr}`;
             } else {
-                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                // Different year - show full date with time
+                const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                return `${dateStr}, ${timeStr}`;
             }
         }
         
@@ -2643,11 +3130,11 @@ Generate a thoughtful and contextually appropriate response that:
                 });
                 
                 if (response.ok) {
+                    const newHuddle = await response.json();
                     closeHuddleModal();
                     showNotification('Huddle created successfully', 'success');
-                    if (currentView === 'huddles') {
-                        loadHuddles();
-                    }
+                    // Always load huddles after creation to ensure UI is updated
+                    await loadHuddles();
                 } else {
                     const error = await response.json();
                     showNotification(error.detail || 'Failed to create huddle', 'error');
@@ -2669,8 +3156,9 @@ Generate a thoughtful and contextually appropriate response that:
                 });
                 
                 if (response.ok) {
-                    const data = await response.json();
-                    renderHuddles(data.huddles || []);
+                    const huddles = await response.json();
+                    console.log('Loaded huddles:', huddles); // Debug log
+                    renderHuddles(huddles);
                 }
             } catch (error) {
                 console.error('Error loading huddles:', error);
@@ -2679,11 +3167,21 @@ Generate a thoughtful and contextually appropriate response that:
         
         function renderHuddles(huddles) {
             const huddlesView = document.getElementById('huddles-view');
-            const huddlesList = huddlesView.querySelector('.p-6');
+            if (!huddlesView) {
+                console.error('Huddles view not found');
+                return;
+            }
+            
+            // Find the huddle list container within the huddles view
+            const huddleListContainer = document.getElementById('huddle-list');
+            if (!huddleListContainer) {
+                console.error('Huddle list container not found');
+                return;
+            }
             
             if (huddles.length === 0) {
-                huddlesList.innerHTML = `
-                    <div class="text-center py-12">
+                huddleListContainer.innerHTML = `
+                    <div class="text-center py-12 col-span-2">
                         <i class="fas fa-users text-6xl text-gray-300 mb-4"></i>
                         <p class="text-gray-500">No huddles yet</p>
                         <button onclick="showCreateHuddleModal()" class="mt-4 gradient-bg text-white px-4 py-2 rounded-lg hover:opacity-90">
@@ -2692,14 +3190,14 @@ Generate a thoughtful and contextually appropriate response that:
                     </div>
                 `;
             } else {
-                huddlesList.innerHTML = huddles.map(huddle => `
+                huddleListContainer.innerHTML = huddles.map(huddle => `
                     <div class="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer p-4 mb-3" onclick="openHuddle('${huddle.id}')">
                         <div class="flex items-center justify-between">
                             <div>
                                 <h3 class="font-semibold text-gray-900">${huddle.name}</h3>
                                 <p class="text-sm text-gray-600">${huddle.description || 'No description'}</p>
                                 <p class="text-xs text-gray-500 mt-1">
-                                    <i class="fas fa-users mr-1"></i>${huddle.member_count || 0} members • 
+                                    <i class="fas fa-users mr-1"></i>${huddle.members ? huddle.members.length : 0} members • 
                                     Created ${new Date(huddle.created_at).toLocaleDateString()}
                                 </p>
                             </div>

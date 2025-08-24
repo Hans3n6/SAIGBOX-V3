@@ -44,6 +44,12 @@ class GmailService:
         
         return build('gmail', 'v1', credentials=credentials)
     
+    def fetch_recent_emails(self, user: User, limit: int = 50) -> List[Dict]:
+        """Fetch recent emails from Gmail - stub implementation"""
+        # For now, return empty list to avoid errors
+        # This needs to be implemented with actual Gmail API calls
+        return []
+    
     def get_service(self, user: User):
         """Get Gmail service using user's OAuth tokens"""
         # Use OAuth tokens from the user's OAuth flow
