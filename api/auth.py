@@ -60,7 +60,7 @@ def verify_token(token: str) -> Optional[str]:
         return None
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
     db: Session = Depends(get_db)
 ) -> User:
     credentials_exception = HTTPException(
@@ -68,6 +68,20 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    # Try to get token from Authorization header first
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    
+    # If no Authorization header, try cookie
+    if not token:
+        token = request.cookies.get("access_token")
+    
+    # If still no token, raise exception
+    if not token:
+        raise credentials_exception
     
     email = verify_token(token)
     if email is None:

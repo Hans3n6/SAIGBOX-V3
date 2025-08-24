@@ -1,16 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
+import re
+import logging
 
 from api.auth import get_current_user
 from api.models import *
 from core.database import get_db, User, Email as EmailModel
 from core.gmail_service import GmailService
 from core.token_manager import token_manager
+from core.saig_assistant import SAIGAssistant
 
 router = APIRouter()
 gmail_service = GmailService()
+logger = logging.getLogger(__name__)
 
 @router.get("/", response_model=EmailListResponse)
 async def list_emails(
@@ -258,17 +262,30 @@ async def reply_to_email(
         subject = f"Re: {subject}"
     
     try:
-        # Send via Gmail
-        result = gmail_service.send_email(
-            current_user,
-            to,
-            subject,
-            reply_data.body
-        )
+        # Send reply with thread context
+        if original.gmail_id and original.thread_id:
+            # Use the reply_to_email method to maintain thread
+            result = gmail_service.reply_to_email(
+                user=current_user,
+                original_message_id=original.gmail_id,
+                thread_id=original.thread_id,
+                to=original.sender,
+                subject=subject,
+                body=reply_data.body
+            )
+        else:
+            # Fallback to regular send if no thread info
+            result = gmail_service.send_email(
+                current_user,
+                to,
+                subject,
+                reply_data.body
+            )
         
         return {
             "success": True,
-            "message": "Reply sent successfully"
+            "message": "Reply sent successfully",
+            "thread_id": original.thread_id if original.thread_id else None
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -301,3 +318,247 @@ async def search_emails(
     emails = query.order_by(EmailModel.received_at.desc()).limit(50).all()
     
     return emails
+
+@router.post("/{email_id}/summary")
+async def generate_email_summary(
+    email_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate AI summary for an email"""
+    try:
+        # Get the email
+        email = db.query(EmailModel).filter(
+            EmailModel.id == email_id,
+            EmailModel.user_id == current_user.id,
+            EmailModel.deleted_at.is_(None)
+        ).first()
+        
+        if not email:
+            raise HTTPException(status_code=404, detail="Email not found")
+        
+        # Use SAIG Assistant to generate summary
+        saig = SAIGAssistant()
+        
+        # Clean email text for summarization
+        body_text = clean_email_text(email.body_text or email.snippet or "")
+        
+        # Generate AI summary using SAIG
+        summary_result = await generate_ai_summary(
+            saig=saig,
+            subject=email.subject,
+            sender=email.sender_name or email.sender,
+            content=body_text,
+            received_at=email.received_at
+        )
+        
+        return summary_result
+    
+    except Exception as e:
+        logger.error(f"Error generating summary: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+def clean_email_text(text: str) -> str:
+    """Clean email text for summarization"""
+    if not text:
+        return ""
+    
+    # Remove excessive whitespace
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Remove email headers that might be in the body
+    text = re.sub(r'^(From|To|Subject|Date|Sent):.*$', '', text, flags=re.MULTILINE)
+    
+    # Remove quoted text (lines starting with >)
+    text = re.sub(r'^>.*$', '', text, flags=re.MULTILINE)
+    
+    # Remove email signatures (basic detection)
+    text = re.sub(r'--\s*\n.*', '', text, flags=re.DOTALL)
+    text = re.sub(r'Best regards.*', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'Sincerely.*', '', text, flags=re.DOTALL | re.IGNORECASE)
+    
+    return text.strip()
+
+async def generate_ai_summary(saig: SAIGAssistant, subject: str, sender: str, content: str, received_at: datetime) -> Dict:
+    """Generate AI summary using SAIG Assistant"""
+    
+    # Truncate content to manage token usage
+    clean_content = content[:3000] if content else ""
+    
+    # Format received date
+    time_ago = ""
+    if received_at:
+        now = datetime.now(received_at.tzinfo) if received_at.tzinfo else datetime.now()
+        diff = now - received_at
+        if diff.days == 0:
+            hours = diff.seconds // 3600
+            if hours == 0:
+                minutes = diff.seconds // 60
+                time_ago = f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+            else:
+                time_ago = f"{hours} hour{'s' if hours != 1 else ''} ago"
+        elif diff.days == 1:
+            time_ago = "yesterday"
+        else:
+            time_ago = f"{diff.days} days ago"
+    
+    prompt = f"""Analyze this email and provide a comprehensive summary:
+
+From: {sender}
+Subject: {subject}
+Received: {time_ago}
+Content: {clean_content}
+
+Create a detailed summary with these sections:
+
+**OVERVIEW**
+Provide a 1-2 sentence summary of what this email is about.
+
+**KEY POINTS**
+• List the main points from the email (3-5 bullet points)
+• Focus on the most important information
+
+**ACTION ITEMS**
+• What actions are requested or needed? (if any)
+• Include any deadlines mentioned
+• Note who needs to take action
+
+**TONE & URGENCY**
+• Describe the tone (formal, casual, urgent, friendly, etc.)
+• Rate urgency: High / Medium / Low
+• Note any emotional context
+
+**SUGGESTED RESPONSE**
+• How should you respond to this email?
+• Key points to address in your reply
+• Recommended tone for response
+
+Format your response with clear sections and bullet points."""
+
+    try:
+        # Use SAIG to generate the summary
+        summary_text = await saig._call_anthropic(prompt, max_tokens=600, temperature=0.3)
+        
+        if summary_text and "API error" not in summary_text:
+            # Convert the markdown response to HTML
+            html_content = convert_markdown_to_html(summary_text)
+            
+            # Extract urgency level from the summary
+            urgency = "Normal"
+            if re.search(r'urgency:\s*high', summary_text, re.IGNORECASE):
+                urgency = "High"
+            elif re.search(r'urgency:\s*medium', summary_text, re.IGNORECASE):
+                urgency = "Medium"
+            
+            return {
+                "summary": {
+                    "type": "AI Analysis",
+                    "urgency": urgency,
+                    "has_ai_summary": True
+                },
+                "content": html_content
+            }
+        else:
+            # Fallback to basic summary
+            return generate_fallback_summary(subject, sender, clean_content)
+            
+    except Exception as e:
+        logger.error(f"Error calling AI: {str(e)}")
+        return generate_fallback_summary(subject, sender, clean_content)
+
+def convert_markdown_to_html(text: str) -> str:
+    """Convert markdown-formatted text to HTML with styling"""
+    html = text
+    
+    # Convert headers (** text **)
+    html = re.sub(r'\*\*([^*]+)\*\*', r'<h4 class="font-semibold text-gray-900 mb-2 mt-4">\1</h4>', html)
+    
+    # Convert bullet points to list items
+    lines = html.split('\n')
+    formatted_lines = []
+    in_list = False
+    
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('•'):
+            if not in_list:
+                formatted_lines.append('<ul class="space-y-2 ml-4">')
+                in_list = True
+            formatted_lines.append(f'<li class="text-sm text-gray-700 flex items-start"><span class="text-green-500 mr-2">▸</span><span>{stripped[1:].strip()}</span></li>')
+        else:
+            if in_list and stripped:
+                formatted_lines.append('</ul>')
+                in_list = False
+            if stripped and not stripped.startswith('<'):
+                # Check if it's a section header
+                if any(header in stripped for header in ['OVERVIEW', 'KEY POINTS', 'ACTION ITEMS', 'TONE', 'SUGGESTED']):
+                    formatted_lines.append(f'<h4 class="font-semibold text-gray-900 mb-2 mt-4">{stripped}</h4>')
+                else:
+                    formatted_lines.append(f'<p class="text-sm text-gray-700 mb-2">{stripped}</p>')
+    
+    if in_list:
+        formatted_lines.append('</ul>')
+    
+    # Wrap in a styled container with gradient background
+    return f"""
+    <div class="space-y-4">
+        <div class="bg-gradient-to-r from-green-50 to-blue-50 p-4 rounded-lg border border-green-200">
+            <div class="flex items-center mb-3">
+                <i class="fas fa-brain text-green-600 mr-2"></i>
+                <span class="text-xs font-semibold text-green-700">AI Summary powered by SAIG</span>
+            </div>
+            {''.join(formatted_lines)}
+        </div>
+    </div>
+    """
+
+def generate_fallback_summary(subject: str, sender: str, content: str) -> Dict:
+    """Generate a basic summary when AI is not available"""
+    
+    # Extract first few sentences
+    sentences = content.split('.')[:3]
+    key_points = [s.strip() for s in sentences if s.strip() and len(s.strip()) > 10]
+    
+    # Basic urgency detection
+    urgency = "Normal"
+    lower_content = content.lower()
+    if any(word in lower_content for word in ['urgent', 'asap', 'immediately', 'critical']):
+        urgency = "High"
+    
+    html = f"""
+    <div class="space-y-4">
+        <div class="bg-yellow-50 p-3 rounded-lg text-sm border border-yellow-200">
+            <i class="fas fa-info-circle text-yellow-600 mr-2"></i>
+            <span class="text-yellow-700">Basic summary - AI analysis unavailable</span>
+        </div>
+        
+        <div class="bg-gray-50 p-4 rounded-lg">
+            <h4 class="font-semibold text-gray-900 mb-2">Email Overview</h4>
+            <p class="text-sm text-gray-700 mb-2">From: {sender}</p>
+            <p class="text-sm text-gray-700 mb-2">Subject: {subject}</p>
+            
+            <h4 class="font-semibold text-gray-900 mb-2 mt-4">Content Preview</h4>
+            <ul class="space-y-1">
+    """
+    
+    for point in key_points:
+        html += f'<li class="text-sm text-gray-700 flex items-start"><span class="text-gray-500 mr-2">•</span><span>{point}</span></li>'
+    
+    html += f"""
+            </ul>
+            
+            <div class="pt-3 mt-3 border-t border-gray-200 text-xs text-gray-600">
+                <div>Urgency: <span class="{'text-red-600 font-semibold' if urgency == 'High' else 'text-gray-700'}">{urgency}</span></div>
+            </div>
+        </div>
+    </div>
+    """
+    
+    return {
+        "summary": {
+            "type": "Basic Analysis",
+            "urgency": urgency,
+            "has_ai_summary": False
+        },
+        "content": html
+    }

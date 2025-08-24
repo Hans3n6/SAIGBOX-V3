@@ -306,17 +306,24 @@ class GmailService:
             return False
     
     def send_email(self, user: User, to: List[str], subject: str, body: str, 
-                   cc: List[str] = None, bcc: List[str] = None) -> Dict[str, Any]:
+                   cc: List[str] = None, bcc: List[str] = None, thread_id: str = None,
+                   message_id: str = None) -> Dict[str, Any]:
         try:
             service = self.get_service(user)
             
-            # Create message
-            message = self._create_message(user.email, to, subject, body, cc, bcc)
+            # Create message with proper headers for threading
+            message = self._create_message(user.email, to, subject, body, cc, bcc, 
+                                          thread_id=thread_id, message_id=message_id)
+            
+            # Prepare send body
+            send_body = {'raw': message}
+            if thread_id:
+                send_body['threadId'] = thread_id
             
             # Send message
             result = service.users().messages().send(
                 userId='me',
-                body={'raw': message}
+                body=send_body
             ).execute()
             
             return result
@@ -324,8 +331,43 @@ class GmailService:
             logger.error(f"Error sending email: {e}")
             raise
     
+    def reply_to_email(self, user: User, original_message_id: str, thread_id: str,
+                      to: str, subject: str, body: str) -> Dict[str, Any]:
+        """Send a reply in the same thread"""
+        try:
+            service = self.get_service(user)
+            
+            # Get the original message to extract headers
+            original = service.users().messages().get(
+                userId='me',
+                id=original_message_id,
+                format='metadata',
+                metadataHeaders=['Message-ID']
+            ).execute()
+            
+            # Extract Message-ID for In-Reply-To header
+            message_id = None
+            for header in original.get('payload', {}).get('headers', []):
+                if header['name'] == 'Message-ID':
+                    message_id = header['value']
+                    break
+            
+            # Send reply with thread context
+            return self.send_email(
+                user=user,
+                to=[to],
+                subject=subject,
+                body=body,
+                thread_id=thread_id,
+                message_id=message_id
+            )
+        except Exception as e:
+            logger.error(f"Error replying to email: {e}")
+            raise
+    
     def _create_message(self, sender: str, to: List[str], subject: str, 
-                       body: str, cc: List[str] = None, bcc: List[str] = None) -> str:
+                       body: str, cc: List[str] = None, bcc: List[str] = None,
+                       thread_id: str = None, message_id: str = None) -> str:
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
         
@@ -338,6 +380,11 @@ class GmailService:
             message['Cc'] = ', '.join(cc)
         if bcc:
             message['Bcc'] = ', '.join(bcc)
+        
+        # Add threading headers for replies
+        if message_id:
+            message['In-Reply-To'] = message_id
+            message['References'] = message_id
         
         message.attach(MIMEText(body, 'plain'))
         
