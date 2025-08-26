@@ -54,24 +54,30 @@ async def list_action_items(
     items = query.order_by(ActionItemModel.priority, ActionItemModel.created_at).all()
     
     # Convert to response model
-    return [
-        ActionItem(
+    result = []
+    for item in items:
+        # Map numeric priority to enum string
+        priority_map = {1: "high", 2: "medium", 3: "low"}
+        priority_str = priority_map.get(item.priority, "medium")
+        
+        # Map status string to enum
+        status_str = item.status if item.status in ["pending", "completed", "overdue"] else "pending"
+        
+        result.append(ActionItem(
             id=item.id,
             user_id=item.user_id,
             email_id=item.email_id,
             title=item.title,
             description=item.description,
             due_date=item.due_date,
-            priority=ActionItemPriority(
-                {1: "high", 2: "medium", 3: "low"}.get(item.priority, "medium")
-            ),
-            status=ActionItemStatus(item.status),
+            priority=ActionItemPriority(priority_str),
+            status=ActionItemStatus(status_str),
             created_at=item.created_at,
             completed_at=item.completed_at,
             updated_at=item.updated_at
-        )
-        for item in items
-    ]
+        ))
+    
+    return result
 
 @router.get("/{action_id}", response_model=ActionItem)
 async def get_action_item(

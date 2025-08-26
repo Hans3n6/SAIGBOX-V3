@@ -255,7 +255,13 @@
                 <div id="huddles-view" class="hidden h-full p-6 overflow-y-auto">
                     <div class="max-w-4xl mx-auto">
                         <div class="flex justify-between items-center mb-6">
-                            <h3 class="text-lg font-semibold">Huddles</h3>
+                            <div class="flex items-center space-x-4">
+                                <h3 class="text-lg font-semibold">Huddles</h3>
+                                <label class="flex items-center text-sm text-gray-600 cursor-pointer">
+                                    <input type="checkbox" id="show-archived-huddles" onchange="toggleArchivedHuddles()" class="mr-2">
+                                    <span>Show Archived</span>
+                                </label>
+                            </div>
                             <button onclick="showCreateHuddleModal()" class="gradient-bg text-white px-4 py-2 rounded-lg hover:opacity-90">
                                 <i class="fas fa-plus mr-2"></i>New Huddle
                             </button>
@@ -460,6 +466,71 @@
                 <button onclick="saveActionItem()" class="gradient-bg text-white px-4 py-2 rounded-lg hover:opacity-90">
                     <i class="fas fa-plus mr-2"></i>Create Action
                 </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Huddle Detail Modal -->
+    <div id="huddle-detail-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl m-4 max-h-[90vh] flex flex-col">
+            <!-- Modal Header -->
+            <div class="flex justify-between items-center p-6 border-b">
+                <div>
+                    <h2 id="huddle-detail-name" class="text-2xl font-bold text-gray-900"></h2>
+                    <p id="huddle-detail-description" class="text-gray-600 mt-1"></p>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <!-- Archive Button -->
+                    <button onclick="archiveHuddle()" class="text-yellow-600 hover:text-yellow-700" title="Archive Huddle">
+                        <i class="fas fa-archive text-lg"></i>
+                    </button>
+                    <!-- Delete Button -->
+                    <button onclick="deleteHuddle()" class="text-red-600 hover:text-red-700" title="Delete Huddle">
+                        <i class="fas fa-trash text-lg"></i>
+                    </button>
+                    <!-- Close Button -->
+                    <button onclick="closeHuddleDetail()" class="text-gray-500 hover:text-gray-700" title="Close">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Modal Body -->
+            <div class="flex-1 overflow-y-auto p-6">
+                <div class="grid grid-cols-3 gap-6">
+                    <!-- Members Section -->
+                    <div class="col-span-1">
+                        <h3 class="text-lg font-semibold mb-3 text-gray-800">
+                            <i class="fas fa-users mr-2 text-green-600"></i>Members
+                        </h3>
+                        <div id="huddle-members-detail" class="space-y-2">
+                            <!-- Members will be loaded here -->
+                        </div>
+                        <button onclick="addMemberToHuddle()" class="mt-4 w-full text-green-600 border border-green-600 px-3 py-2 rounded hover:bg-green-50 text-sm">
+                            <i class="fas fa-user-plus mr-2"></i>Add Member
+                        </button>
+                    </div>
+                    
+                    <!-- Email Chain Section -->
+                    <div class="col-span-2">
+                        <h3 class="text-lg font-semibold mb-3 text-gray-800">
+                            <i class="fas fa-envelope mr-2 text-blue-600"></i>Email Chain
+                        </h3>
+                        <div id="huddle-emails-list" class="space-y-3 max-h-96 overflow-y-auto border rounded-lg p-3 bg-gray-50">
+                            <!-- Emails will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Compose Button Section -->
+                <div class="mt-6 border-t pt-6">
+                    <div class="flex justify-center">
+                        <button onclick="composeToHuddle()" class="gradient-bg text-white px-6 py-3 rounded-lg hover:opacity-90 flex items-center space-x-2">
+                            <i class="fas fa-paper-plane"></i>
+                            <span>Compose Message to Huddle</span>
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1841,9 +1912,15 @@
                 if (response.ok) {
                     const data = await response.json();
                     renderActionItems(data.actions || data || []);
+                } else {
+                    console.warn(`Action items endpoint returned ${response.status}`);
+                    // Show empty state instead of error for graceful degradation
+                    renderActionItems([]);
                 }
             } catch (error) {
                 console.error('Error loading action items:', error);
+                // Show empty state on error
+                renderActionItems([]);
             }
         }
         
@@ -2163,7 +2240,20 @@
         window.currentAttachments = [];
         window.currentDraftId = null;
         
+        // Store huddle context globally for compose modal
+        let currentComposeHuddleId = null;
+        
         function showComposeModal(mode = 'compose', originalEmail = null) {
+            // Handle both mode parameter and huddle data object
+            let huddleData = null;
+            if (typeof mode === 'object') {
+                huddleData = mode;
+                currentComposeHuddleId = huddleData.huddle_id || null;
+                mode = 'compose';
+            } else {
+                currentComposeHuddleId = null;
+            }
+            
             const isReply = mode === 'reply';
             const isReplyAll = mode === 'reply_all';
             const isForward = mode === 'forward';
@@ -2174,7 +2264,12 @@
             let defaultCc = '';
             let defaultBody = '';
             
-            if (originalEmail) {
+            if (huddleData) {
+                // Pre-fill for huddle compose
+                defaultTo = Array.isArray(huddleData.to) ? huddleData.to.join(', ') : huddleData.to;
+                defaultSubject = huddleData.subject || '';
+                defaultBody = huddleData.body || '';
+            } else if (originalEmail) {
                 if (isReply || isReplyAll) {
                     defaultSubject = originalEmail.subject.startsWith('Re: ') ? originalEmail.subject : `Re: ${originalEmail.subject}`;
                     defaultTo = originalEmail.sender_email || originalEmail.sender;
@@ -2191,7 +2286,9 @@
                 }
             }
             
-            const modalTitle = isReply ? 'Reply to Email' : isReplyAll ? 'Reply All' : isForward ? 'Forward Email' : 'Compose Email';
+            const modalTitle = huddleData ? `Compose to ${huddleData.huddle_name || 'Huddle'}` :
+                              isReply ? 'Reply to Email' : isReplyAll ? 'Reply All' : 
+                              isForward ? 'Forward Email' : 'Compose Email';
             
             const modalHtml = `
                 <div id="compose-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onclick="if(event.target === this) closeComposeModal()">
@@ -2369,6 +2466,7 @@
                 modal.remove();
                 window.currentAttachments = [];
                 window.currentDraftId = null;
+                currentComposeHuddleId = null; // Reset huddle context
             }
         }
         
@@ -2517,6 +2615,11 @@
                 body: htmlContent,
                 attachments: window.currentAttachments || []
             };
+            
+            // Add huddle_id if composing to a huddle
+            if (currentComposeHuddleId) {
+                emailData.huddle_id = currentComposeHuddleId;
+            }
             
             if (!emailData.to.length || !emailData.subject || !emailData.body) {
                 showNotification('Please fill in all required fields', 'error');
@@ -3486,9 +3589,10 @@ Generate a thoughtful and contextually appropriate response that:
         }
         
         // Load huddles when switching to huddles view
-        async function loadHuddles() {
+        async function loadHuddles(includeArchived = false) {
             try {
-                const response = await fetch('/api/huddles', {
+                const url = includeArchived ? '/api/huddles?include_archived=true' : '/api/huddles';
+                const response = await fetch(url, {
                     headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`
                     } : {},
@@ -3503,6 +3607,11 @@ Generate a thoughtful and contextually appropriate response that:
             } catch (error) {
                 console.error('Error loading huddles:', error);
             }
+        }
+        
+        function toggleArchivedHuddles() {
+            const showArchived = document.getElementById('show-archived-huddles').checked;
+            loadHuddles(showArchived);
         }
         
         function renderHuddles(huddles) {
@@ -3531,26 +3640,322 @@ Generate a thoughtful and contextually appropriate response that:
                 `;
             } else {
                 huddleListContainer.innerHTML = huddles.map(huddle => `
-                    <div class="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer p-4 mb-3" onclick="openHuddle('${huddle.id}')">
+                    <div class="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer p-4 mb-3 ${huddle.is_archived ? 'opacity-75' : ''}" onclick="openHuddle('${huddle.id}')">
                         <div class="flex items-center justify-between">
                             <div>
-                                <h3 class="font-semibold text-gray-900">${huddle.name}</h3>
+                                <div class="flex items-center space-x-2">
+                                    <h3 class="font-semibold text-gray-900">${huddle.name}</h3>
+                                    ${huddle.is_archived ? '<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">Archived</span>' : ''}
+                                </div>
                                 <p class="text-sm text-gray-600">${huddle.description || 'No description'}</p>
                                 <p class="text-xs text-gray-500 mt-1">
                                     <i class="fas fa-users mr-1"></i>${huddle.members ? huddle.members.length : 0} members • 
                                     Created ${new Date(huddle.created_at).toLocaleDateString()}
                                 </p>
                             </div>
-                            <i class="fas fa-chevron-right text-gray-400"></i>
+                            <div class="flex items-center space-x-2">
+                                ${huddle.is_archived ? 
+                                    `<button onclick="event.stopPropagation(); restoreHuddle('${huddle.id}')" class="text-green-600 hover:text-green-700 text-sm" title="Restore">
+                                        <i class="fas fa-undo"></i>
+                                    </button>` : ''}
+                                <i class="fas fa-chevron-right text-gray-400"></i>
+                            </div>
                         </div>
                     </div>
                 `).join('');
             }
         }
         
-        function openHuddle(huddleId) {
-            // Implementation for opening huddle detail view
-            alert(`Opening huddle ${huddleId}`);
+        let currentHuddleId = null;
+        let currentHuddle = null;
+        
+        async function openHuddle(huddleId) {
+            currentHuddleId = huddleId;
+            
+            try {
+                // Fetch huddle details
+                const response = await fetch(`/api/huddles/${huddleId}`, {
+                    headers: authToken !== 'session' ? {
+                        'Authorization': `Bearer ${authToken}`
+                    } : {},
+                    credentials: 'include'
+                });
+                
+                if (response.ok) {
+                    currentHuddle = await response.json();
+                    
+                    // Update modal header
+                    document.getElementById('huddle-detail-name').textContent = currentHuddle.name;
+                    document.getElementById('huddle-detail-description').textContent = currentHuddle.description || 'No description';
+                    
+                    // Display members
+                    displayHuddleMembers(currentHuddle.members || []);
+                    
+                    // Load email chain
+                    loadHuddleEmails(huddleId);
+                    
+                    // Show modal
+                    document.getElementById('huddle-detail-modal').classList.remove('hidden');
+                } else {
+                    showNotification('Failed to load huddle details', 'error');
+                }
+            } catch (error) {
+                console.error('Error opening huddle:', error);
+                showNotification('Error loading huddle', 'error');
+            }
+        }
+        
+        function displayHuddleMembers(members) {
+            const membersContainer = document.getElementById('huddle-members-detail');
+            
+            if (!members || members.length === 0) {
+                membersContainer.innerHTML = '<p class="text-gray-500 text-sm">No members yet</p>';
+            } else {
+                membersContainer.innerHTML = members.map(member => {
+                    // Handle both string emails and member objects
+                    const memberEmail = typeof member === 'string' ? member : (member.email || member);
+                    const memberName = typeof member === 'object' ? (member.name || member.email) : member;
+                    const firstChar = memberEmail && memberEmail.length > 0 ? memberEmail.charAt(0).toUpperCase() : '?';
+                    
+                    return `
+                    <div class="flex items-center justify-between p-2 bg-gray-50 rounded hover:bg-gray-100">
+                        <div class="flex items-center">
+                            <div class="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold mr-2">
+                                ${firstChar}
+                            </div>
+                            <span class="text-sm text-gray-700">${memberName}</span>
+                        </div>
+                        <button onclick="removeMemberFromHuddle('${memberEmail}')" class="text-red-500 hover:text-red-700 text-sm">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    `;
+                }).join('');
+            }
+        }
+        
+        async function loadHuddleEmails(huddleId) {
+            const emailsContainer = document.getElementById('huddle-emails-list');
+            emailsContainer.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin text-gray-400"></i> Loading emails...</div>';
+            
+            try {
+                // For now, search for emails that might be related to this huddle
+                // by looking for the huddle name in the subject
+                if (currentHuddle && currentHuddle.name) {
+                    // Search emails with huddle name in subject
+                    const searchQuery = `[${currentHuddle.name}]`;
+                    const response = await fetch(`/api/emails?search=${encodeURIComponent(searchQuery)}&limit=20`, {
+                        headers: authToken !== 'session' ? {
+                            'Authorization': `Bearer ${authToken}`
+                        } : {},
+                        credentials: 'include'
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        const emails = data.emails || [];
+                        
+                        if (emails.length === 0) {
+                            emailsContainer.innerHTML = '<p class="text-gray-500 text-center py-8">No emails in this huddle yet</p>';
+                        } else {
+                            emailsContainer.innerHTML = emails.map(email => {
+                                // Escape HTML to prevent XSS
+                                const escapeHtml = (str) => {
+                                    if (!str) return '';
+                                    const div = document.createElement('div');
+                                    div.textContent = str;
+                                    return div.innerHTML;
+                                };
+                                
+                                return `
+                                <div class="bg-white p-3 rounded border hover:shadow-sm cursor-pointer" onclick="selectEmail('${escapeHtml(email.id)}')">
+                                    <div class="flex justify-between items-start mb-1">
+                                        <span class="font-medium text-sm">${escapeHtml(email.sender_name || email.sender)}</span>
+                                        <span class="text-xs text-gray-500">${formatDate(email.received_at)}</span>
+                                    </div>
+                                    <div class="text-sm font-medium text-gray-800">${escapeHtml(email.subject || '(No subject)')}</div>
+                                    <div class="text-xs text-gray-600 mt-1 truncate">${escapeHtml(email.snippet || '')}</div>
+                                </div>
+                                `;
+                            }).join('');
+                        }
+                    } else {
+                        emailsContainer.innerHTML = '<p class="text-gray-500 text-center py-8">No emails in this huddle yet</p>';
+                    }
+                } else {
+                    emailsContainer.innerHTML = '<p class="text-gray-500 text-center py-8">No emails in this huddle yet</p>';
+                }
+            } catch (error) {
+                console.error('Error loading huddle emails:', error);
+                // Show graceful error message instead of error state
+                emailsContainer.innerHTML = '<p class="text-gray-500 text-center py-8">No emails in this huddle yet</p>';
+            }
+        }
+        
+        function closeHuddleDetail() {
+            document.getElementById('huddle-detail-modal').classList.add('hidden');
+            currentHuddleId = null;
+            currentHuddle = null;
+        }
+        
+        function composeToHuddle() {
+            if (!currentHuddle) return;
+            
+            // Close huddle detail modal
+            closeHuddleDetail();
+            
+            // Open compose modal with huddle information pre-filled
+            showComposeModal({
+                to: currentHuddle.members || [],
+                subject: `[${currentHuddle.name}] `,
+                huddle_id: currentHuddleId,
+                huddle_name: currentHuddle.name
+            });
+        }
+        
+        async function addMemberToHuddle() {
+            if (!currentHuddleId) return;
+            
+            const email = prompt('Enter member email address:');
+            if (!email || !email.includes('@')) return;
+            
+            try {
+                const response = await fetch(`/api/huddles/${currentHuddleId}/members`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(authToken !== 'session' ? { 'Authorization': `Bearer ${authToken}` } : {})
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({ email: email })
+                });
+                
+                if (response.ok) {
+                    // Reload huddle to get updated members
+                    openHuddle(currentHuddleId);
+                    showNotification('Member added successfully', 'success');
+                } else {
+                    showNotification('Failed to add member', 'error');
+                }
+            } catch (error) {
+                console.error('Error adding member:', error);
+                showNotification('Error adding member', 'error');
+            }
+        }
+        
+        async function removeMemberFromHuddle(memberEmail) {
+            if (!currentHuddleId || !confirm(`Remove ${memberEmail} from huddle?`)) return;
+            
+            try {
+                const response = await fetch(`/api/huddles/${currentHuddleId}/members/${encodeURIComponent(memberEmail)}`, {
+                    method: 'DELETE',
+                    headers: authToken !== 'session' ? {
+                        'Authorization': `Bearer ${authToken}`
+                    } : {},
+                    credentials: 'include'
+                });
+                
+                if (response.ok) {
+                    // Reload huddle to get updated members
+                    openHuddle(currentHuddleId);
+                    showNotification('Member removed', 'success');
+                } else {
+                    showNotification('Failed to remove member', 'error');
+                }
+            } catch (error) {
+                console.error('Error removing member:', error);
+                showNotification('Error removing member', 'error');
+            }
+        }
+        
+        async function deleteHuddle() {
+            if (!currentHuddleId) return;
+            
+            const huddleName = currentHuddle ? currentHuddle.name : 'this huddle';
+            if (!confirm(`Are you sure you want to permanently delete "${huddleName}"? This action cannot be undone.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/huddles/${currentHuddleId}`, {
+                    method: 'DELETE',
+                    headers: authToken !== 'session' ? {
+                        'Authorization': `Bearer ${authToken}`
+                    } : {},
+                    credentials: 'include'
+                });
+                
+                if (response.ok) {
+                    showNotification('Huddle deleted successfully', 'success');
+                    closeHuddleDetail();
+                    // Reload huddles list
+                    if (currentView === 'huddles') {
+                        loadHuddles();
+                    }
+                } else {
+                    const error = await response.json();
+                    showNotification(error.detail || 'Failed to delete huddle', 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting huddle:', error);
+                showNotification('Error deleting huddle', 'error');
+            }
+        }
+        
+        async function archiveHuddle() {
+            if (!currentHuddleId) return;
+            
+            const huddleName = currentHuddle ? currentHuddle.name : 'this huddle';
+            if (!confirm(`Archive "${huddleName}"? You can restore it later from archived huddles.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/huddles/${currentHuddleId}/archive`, {
+                    method: 'POST',
+                    headers: authToken !== 'session' ? {
+                        'Authorization': `Bearer ${authToken}`
+                    } : {},
+                    credentials: 'include'
+                });
+                
+                if (response.ok) {
+                    showNotification('Huddle archived successfully', 'success');
+                    closeHuddleDetail();
+                    // Reload huddles list
+                    if (currentView === 'huddles') {
+                        loadHuddles();
+                    }
+                } else {
+                    const error = await response.json();
+                    showNotification(error.detail || 'Failed to archive huddle', 'error');
+                }
+            } catch (error) {
+                console.error('Error archiving huddle:', error);
+                showNotification('Error archiving huddle', 'error');
+            }
+        }
+        
+        async function restoreHuddle(huddleId) {
+            try {
+                const response = await fetch(`/api/huddles/${huddleId}/restore`, {
+                    method: 'POST',
+                    headers: authToken !== 'session' ? {
+                        'Authorization': `Bearer ${authToken}`
+                    } : {},
+                    credentials: 'include'
+                });
+                
+                if (response.ok) {
+                    showNotification('Huddle restored successfully', 'success');
+                    loadHuddles();
+                } else {
+                    showNotification('Failed to restore huddle', 'error');
+                }
+            } catch (error) {
+                console.error('Error restoring huddle:', error);
+                showNotification('Error restoring huddle', 'error');
+            }
         }
         
         function showReplyModal(emailId) {
