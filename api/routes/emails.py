@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, func
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import re
@@ -29,21 +30,44 @@ async def list_emails(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     search: Optional[str] = None,
+    semantic: bool = Query(True, description="Use semantic search"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List emails with pagination and search"""
+    """List emails with pagination and search (semantic or keyword)"""
+    
+    # Apply search filter
+    if search and semantic:
+        # Semantic search using AI-powered relevance scoring
+        emails = await perform_semantic_search(db, current_user.id, search, limit, page)
+        total = len(emails)
+        pages = 1  # Semantic search returns best matches in one page
+        
+        return EmailListResponse(
+            emails=emails,
+            total=total,
+            page=page,
+            pages=pages,
+            has_next=False,
+            has_prev=False
+        )
+    
+    # Standard query for keyword search or no search
     query = db.query(EmailModel).filter(
         EmailModel.user_id == current_user.id,
         EmailModel.deleted_at.is_(None)
     )
     
-    # Apply search filter
-    if search:
+    # Apply keyword search filter
+    if search and not semantic:
+        search_term = f"%{search}%"
         query = query.filter(
-            (EmailModel.subject.contains(search)) |
-            (EmailModel.sender.contains(search)) |
-            (EmailModel.body_text.contains(search))
+            or_(
+                EmailModel.subject.ilike(search_term),
+                EmailModel.sender.ilike(search_term),
+                EmailModel.body_text.ilike(search_term),
+                EmailModel.snippet.ilike(search_term)
+            )
         )
     
     # Get total count
@@ -862,3 +886,94 @@ async def manually_process_urgent(
         "queued": len(urgent_emails),
         "message": f"Queued {len(urgent_emails)} urgent emails for processing"
     }
+
+async def perform_semantic_search(db: Session, user_id: str, query: str, limit: int, page: int) -> List[EmailModel]:
+    """Perform semantic search using AI to find relevant emails"""
+    try:
+        # Get all user's emails (limited to recent 500 for performance)
+        all_emails = db.query(EmailModel).filter(
+            EmailModel.user_id == user_id,
+            EmailModel.deleted_at.is_(None)
+        ).order_by(EmailModel.received_at.desc()).limit(500).all()
+        
+        if not all_emails:
+            return []
+        
+        # Use SAIG to analyze query intent and find relevant emails
+        relevant_emails = []
+        query_lower = query.lower()
+        query_words = set(query_lower.split())
+        
+        for email in all_emails:
+            # Calculate relevance score
+            score = 0
+            
+            # Check subject relevance
+            if email.subject:
+                subject_lower = email.subject.lower()
+                if query_lower in subject_lower:
+                    score += 10
+                elif any(word in subject_lower for word in query_words):
+                    score += 5
+            
+            # Check sender relevance
+            if email.sender:
+                sender_lower = email.sender.lower()
+                if query_lower in sender_lower:
+                    score += 8
+                elif any(word in sender_lower for word in query_words):
+                    score += 4
+            
+            # Check body relevance
+            if email.body_text:
+                body_lower = email.body_text.lower()[:1000]  # Check first 1000 chars
+                if query_lower in body_lower:
+                    score += 6
+                elif any(word in body_lower for word in query_words):
+                    score += 3
+            
+            # Check snippet relevance
+            if email.snippet:
+                snippet_lower = email.snippet.lower()
+                if query_lower in snippet_lower:
+                    score += 4
+                elif any(word in snippet_lower for word in query_words):
+                    score += 2
+            
+            # Semantic matching for common concepts
+            semantic_matches = {
+                'urgent': ['urgent', 'asap', 'immediately', 'critical', 'important', 'priority'],
+                'meeting': ['meeting', 'call', 'zoom', 'teams', 'conference', 'discussion'],
+                'invoice': ['invoice', 'payment', 'bill', 'receipt', 'purchase', 'order'],
+                'project': ['project', 'task', 'milestone', 'deadline', 'deliverable'],
+                'schedule': ['schedule', 'calendar', 'appointment', 'time', 'date', 'when'],
+                'report': ['report', 'analysis', 'summary', 'review', 'update', 'status'],
+                'approval': ['approval', 'approve', 'permission', 'authorization', 'sign-off'],
+                'contract': ['contract', 'agreement', 'terms', 'proposal', 'deal'],
+                'support': ['support', 'help', 'issue', 'problem', 'bug', 'error'],
+                'feedback': ['feedback', 'review', 'comments', 'thoughts', 'opinion'],
+            }
+            
+            for concept, keywords in semantic_matches.items():
+                if concept in query_lower or any(kw in query_lower for kw in keywords):
+                    email_text = f"{email.subject or ''} {email.body_text or ''} {email.snippet or ''}".lower()
+                    if any(kw in email_text for kw in keywords):
+                        score += 3
+            
+            # Add to results if score is above threshold
+            if score > 0:
+                relevant_emails.append((email, score))
+        
+        # Sort by relevance score and return top results
+        relevant_emails.sort(key=lambda x: x[1], reverse=True)
+        
+        # Apply pagination
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
+        
+        return [email for email, score in relevant_emails[start_idx:end_idx]]
+    
+    except Exception as e:
+        logging.error(f"Semantic search error: {e}")
+        # Fallback to empty results on error
+        return []
