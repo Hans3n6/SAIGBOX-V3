@@ -18,8 +18,8 @@ class TokenManager:
     """Manage OAuth tokens and handle refresh"""
     
     def __init__(self):
-        self.google_client_id = os.getenv("GMAIL_CLIENT_ID")
-        self.google_client_secret = os.getenv("GMAIL_CLIENT_SECRET")
+        self.google_client_id = os.getenv("GOOGLE_CLIENT_ID") or os.getenv("GMAIL_CLIENT_ID")
+        self.google_client_secret = os.getenv("GOOGLE_CLIENT_SECRET") or os.getenv("GMAIL_CLIENT_SECRET")
         self.microsoft_client_id = os.getenv("MICROSOFT_CLIENT_ID")
         self.microsoft_client_secret = os.getenv("MICROSOFT_CLIENT_SECRET")
     

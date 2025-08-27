@@ -1,201 +1,200 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Test OAuth Flow</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OAuth Configuration Test</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             max-width: 800px;
-            margin: 50px auto;
+            margin: 40px auto;
             padding: 20px;
+            background: #f5f5f5;
         }
+        h1 { color: #333; }
         .test-section {
-            margin: 20px 0;
+            background: white;
             padding: 20px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .success {
-            color: green;
-            font-weight: bold;
-        }
-        .error {
-            color: red;
-            font-weight: bold;
-        }
-        button {
-            padding: 10px 20px;
-            margin: 10px;
-            cursor: pointer;
-        }
-        pre {
-            background: #f4f4f4;
+        .status {
             padding: 10px;
-            overflow-x: auto;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .pending { background: #fff3cd; color: #856404; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        button {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #059669; }
+        .url-list {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .url-list li {
+            margin: 5px 0;
+            word-break: break-all;
         }
     </style>
 </head>
 <body>
-    <h1>OAuth Flow Test</h1>
+    <h1>🔐 OAuth Configuration Test</h1>
     
     <div class="test-section">
-        <h2>1. Test Server Connection</h2>
-        <button onclick="testServer()">Test Server</button>
-        <div id="server-result"></div>
+        <h2>Current Configuration</h2>
+        <div class="info status">
+            <strong>Backend API:</strong> https://api.saigbox.com<br>
+            <strong>Frontend:</strong> http://www.saigbox.com<br>
+            <strong>Dashboard:</strong> https://dashboard.saigbox.com
+        </div>
     </div>
-    
+
     <div class="test-section">
-        <h2>2. Test OAuth URL Generation</h2>
-        <button onclick="testOAuthURL()">Get OAuth URL</button>
-        <div id="oauth-url-result"></div>
+        <h2>Google OAuth URLs to Configure</h2>
+        <h3>Authorized JavaScript Origins:</h3>
+        <ul class="url-list">
+            <li>http://www.saigbox.com</li>
+            <li>https://www.saigbox.com</li>
+            <li>https://api.saigbox.com</li>
+            <li>http://localhost:8000</li>
+        </ul>
+        
+        <h3>Authorized Redirect URIs:</h3>
+        <ul class="url-list">
+            <li>https://api.saigbox.com/api/auth/google/callback</li>
+            <li>http://www.saigbox.com/api/auth/google/callback</li>
+            <li>https://www.saigbox.com/api/auth/google/callback</li>
+            <li>http://localhost:8000/api/auth/google/callback</li>
+        </ul>
+        
+        <button onclick="testGoogleAuth()">Test Google OAuth</button>
+        <div id="google-status"></div>
     </div>
-    
+
     <div class="test-section">
-        <h2>3. Test Google OAuth Flow</h2>
-        <button onclick="startOAuth()">Start OAuth Flow</button>
-        <p>This will open Google OAuth in a new window</p>
-        <div id="oauth-result"></div>
+        <h2>Microsoft OAuth URLs to Configure</h2>
+        <h3>Redirect URIs (Web Platform):</h3>
+        <ul class="url-list">
+            <li>https://api.saigbox.com/api/auth/microsoft/callback</li>
+            <li>http://www.saigbox.com/api/auth/microsoft/callback</li>
+            <li>https://www.saigbox.com/api/auth/microsoft/callback</li>
+            <li>http://localhost:8000/api/auth/microsoft/callback</li>
+        </ul>
+        
+        <button onclick="testMicrosoftAuth()">Test Microsoft OAuth</button>
+        <div id="microsoft-status"></div>
     </div>
-    
+
     <div class="test-section">
-        <h2>4. Check Current Auth Status</h2>
-        <button onclick="checkAuth()">Check Auth Status</button>
-        <div id="auth-status"></div>
+        <h2>Test Results</h2>
+        <button onclick="testBackendConnectivity()">Test Backend API</button>
+        <button onclick="testFrontendLogin()">Test Login Page</button>
+        <button onclick="clearTestResults()">Clear Results</button>
+        <div id="test-results"></div>
     </div>
-    
-    <div class="test-section">
-        <h2>Console Output</h2>
-        <pre id="console-output"></pre>
-    </div>
-    
+
     <script>
-        function log(message, isError = false) {
-            const output = document.getElementById('console-output');
-            const timestamp = new Date().toLocaleTimeString();
-            const className = isError ? 'error' : '';
-            output.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
-            console.log(message);
+        const BACKEND_URL = 'https://api.saigbox.com';
+        const FRONTEND_URL = 'http://www.saigbox.com';
+        
+        function addResult(message, type = 'info') {
+            const resultsDiv = document.getElementById('test-results');
+            const result = document.createElement('div');
+            result.className = `status ${type}`;
+            result.innerHTML = `${new Date().toLocaleTimeString()}: ${message}`;
+            resultsDiv.appendChild(result);
         }
         
-        async function testServer() {
-            const resultDiv = document.getElementById('server-result');
+        async function testBackendConnectivity() {
+            addResult('Testing backend connectivity...', 'pending');
             try {
-                log('Testing server connection...');
-                const response = await fetch('http://localhost:8000/api/auth/check');
-                const data = await response.json();
-                resultDiv.innerHTML = `<span class="success">✓ Server is running</span><pre>${JSON.stringify(data, null, 2)}</pre>`;
-                log('Server test successful');
+                const response = await fetch(`${BACKEND_URL}/api/health`, {
+                    mode: 'no-cors'
+                });
+                addResult('Backend is reachable (check may be limited due to CORS)', 'success');
             } catch (error) {
-                resultDiv.innerHTML = `<span class="error">✗ Server connection failed: ${error.message}</span>`;
-                log(`Server test failed: ${error.message}`, true);
+                addResult(`Backend connection failed: ${error.message}`, 'error');
             }
         }
         
-        async function testOAuthURL() {
-            const resultDiv = document.getElementById('oauth-url-result');
+        async function testGoogleAuth() {
+            addResult('Testing Google OAuth endpoint...', 'pending');
             try {
-                log('Fetching OAuth URL...');
-                const response = await fetch('http://localhost:8000/api/auth/google/url');
+                const response = await fetch(`${BACKEND_URL}/api/auth/google/url`);
                 const data = await response.json();
                 
                 if (data.url) {
-                    // Parse and display URL components
+                    addResult('Google OAuth URL generated successfully', 'success');
+                    addResult(`OAuth URL: ${data.url.substring(0, 100)}...`, 'info');
+                    
+                    // Check if redirect URI is in the URL
                     const url = new URL(data.url);
-                    const params = new URLSearchParams(url.search);
-                    
-                    resultDiv.innerHTML = `
-                        <span class="success">✓ OAuth URL generated</span>
-                        <h4>URL Components:</h4>
-                        <pre>
-Client ID: ${params.get('client_id')}
-Redirect URI: ${params.get('redirect_uri')}
-Scopes: ${params.get('scope')?.split(' ').join('\n       ')}
-State: ${params.get('state')}
-                        </pre>
-                        <h4>Full URL:</h4>
-                        <pre style="word-wrap: break-word">${data.url}</pre>
-                    `;
-                    log('OAuth URL generated successfully');
-                } else {
-                    resultDiv.innerHTML = `<span class="error">✗ No URL returned</span>`;
-                    log('No OAuth URL returned', true);
-                }
-            } catch (error) {
-                resultDiv.innerHTML = `<span class="error">✗ Failed to get OAuth URL: ${error.message}</span>`;
-                log(`OAuth URL test failed: ${error.message}`, true);
-            }
-        }
-        
-        async function startOAuth() {
-            const resultDiv = document.getElementById('oauth-result');
-            try {
-                log('Starting OAuth flow...');
-                const response = await fetch('http://localhost:8000/api/auth/google/url');
-                const data = await response.json();
-                
-                if (data.url) {
-                    resultDiv.innerHTML = `<span class="success">Opening Google OAuth...</span>`;
-                    log('Opening OAuth window...');
-                    
-                    // Open OAuth in new window
-                    const authWindow = window.open(data.url, 'oauth', 'width=600,height=700');
-                    
-                    // Check if window was blocked
-                    if (!authWindow) {
-                        resultDiv.innerHTML += `<br><span class="error">Pop-up blocked! Please allow pop-ups for this site.</span>`;
-                        log('Pop-up was blocked', true);
-                    } else {
-                        resultDiv.innerHTML += `<br>OAuth window opened. Complete authentication in the new window.`;
-                        
-                        // Poll to check when authentication is complete
-                        const checkInterval = setInterval(async () => {
-                            if (authWindow.closed) {
-                                clearInterval(checkInterval);
-                                log('OAuth window closed, checking auth status...');
-                                await checkAuth();
-                            }
-                        }, 1000);
+                    const redirectUri = url.searchParams.get('redirect_uri');
+                    if (redirectUri) {
+                        addResult(`Redirect URI in request: ${redirectUri}`, 'info');
                     }
                 } else {
-                    resultDiv.innerHTML = `<span class="error">✗ Failed to get OAuth URL</span>`;
-                    log('Failed to get OAuth URL', true);
+                    addResult('Failed to generate Google OAuth URL', 'error');
                 }
             } catch (error) {
-                resultDiv.innerHTML = `<span class="error">✗ Error: ${error.message}</span>`;
-                log(`OAuth flow error: ${error.message}`, true);
+                addResult(`Google OAuth test failed: ${error.message}`, 'error');
             }
         }
         
-        async function checkAuth() {
-            const resultDiv = document.getElementById('auth-status');
+        async function testMicrosoftAuth() {
+            addResult('Testing Microsoft OAuth endpoint...', 'pending');
             try {
-                log('Checking authentication status...');
-                const response = await fetch('http://localhost:8000/api/auth/check', {
-                    credentials: 'include'
-                });
+                const response = await fetch(`${BACKEND_URL}/api/auth/microsoft/url`);
                 const data = await response.json();
                 
-                if (data.authenticated) {
-                    resultDiv.innerHTML = `
-                        <span class="success">✓ Authenticated</span>
-                        <pre>User: ${data.email}
-Name: ${data.name}</pre>
-                    `;
-                    log(`Authenticated as ${data.email}`);
+                if (data.url) {
+                    addResult('Microsoft OAuth URL generated successfully', 'success');
+                    addResult(`OAuth URL: ${data.url.substring(0, 100)}...`, 'info');
+                    
+                    // Check if redirect URI is in the URL
+                    const url = new URL(data.url);
+                    const redirectUri = url.searchParams.get('redirect_uri');
+                    if (redirectUri) {
+                        addResult(`Redirect URI in request: ${redirectUri}`, 'info');
+                    }
                 } else {
-                    resultDiv.innerHTML = `<span class="error">✗ Not authenticated</span>`;
-                    log('Not authenticated');
+                    addResult('Failed to generate Microsoft OAuth URL', 'error');
                 }
             } catch (error) {
-                resultDiv.innerHTML = `<span class="error">✗ Error: ${error.message}</span>`;
-                log(`Auth check error: ${error.message}`, true);
+                addResult(`Microsoft OAuth test failed: ${error.message}`, 'error');
             }
         }
         
-        // Test server on page load
-        window.onload = () => {
-            log('Page loaded, testing server...');
-            testServer();
+        function testFrontendLogin() {
+            addResult('Opening login page in new tab...', 'info');
+            window.open(`${FRONTEND_URL}/login`, '_blank');
+            addResult('Login page opened. Check the new tab and try logging in.', 'success');
+        }
+        
+        function clearTestResults() {
+            document.getElementById('test-results').innerHTML = '';
+            addResult('Test results cleared', 'info');
+        }
+        
+        // Auto-test on load
+        window.onload = function() {
+            addResult('OAuth Configuration Test Page Loaded', 'info');
+            addResult('Click the test buttons to verify your OAuth configuration', 'info');
         };
     </script>
 </body>

@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 
 class GmailService:
     def __init__(self):
-        # OAuth app credentials for token refresh
-        self.client_id = os.getenv("GMAIL_CLIENT_ID")
-        self.client_secret = os.getenv("GMAIL_CLIENT_SECRET")
+        # OAuth app credentials for token refresh (uses GOOGLE_ prefix, falls back to GMAIL_)
+        self.client_id = os.getenv("GOOGLE_CLIENT_ID") or os.getenv("GMAIL_CLIENT_ID")
+        self.client_secret = os.getenv("GOOGLE_CLIENT_SECRET") or os.getenv("GMAIL_CLIENT_SECRET")
         self.token_uri = "https://oauth2.googleapis.com/token"
         self.scopes = [
             'https://www.googleapis.com/auth/gmail.readonly',

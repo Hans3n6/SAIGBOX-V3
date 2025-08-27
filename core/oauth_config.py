@@ -110,12 +110,13 @@ class OAuthManager:
         """Initialize OAuth provider configurations"""
         providers = {}
         
-        # Google OAuth
-        if os.getenv("GMAIL_CLIENT_ID"):
+        # Google OAuth (uses GOOGLE_ prefix, falls back to GMAIL_ for compatibility)
+        google_client_id = os.getenv("GOOGLE_CLIENT_ID") or os.getenv("GMAIL_CLIENT_ID")
+        if google_client_id:
             providers[OAuthProvider.GOOGLE.value] = OAuthConfig(
-                client_id=os.getenv("GMAIL_CLIENT_ID"),
-                client_secret=os.getenv("GMAIL_CLIENT_SECRET"),
-                redirect_uri=os.getenv("GMAIL_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback"),
+                client_id=google_client_id,
+                client_secret=os.getenv("GOOGLE_CLIENT_SECRET") or os.getenv("GMAIL_CLIENT_SECRET"),
+                redirect_uri=os.getenv("GOOGLE_REDIRECT_URI") or os.getenv("GMAIL_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback"),
                 auth_url="https://accounts.google.com/o/oauth2/v2/auth",
                 token_url="https://oauth2.googleapis.com/token",
                 user_info_url="https://www.googleapis.com/oauth2/v2/userinfo",

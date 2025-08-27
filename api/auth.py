@@ -23,10 +23,10 @@ ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30"))
 
-# Google OAuth settings
-GOOGLE_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
-GOOGLE_REDIRECT_URI = os.getenv("GMAIL_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback")
+# Google OAuth settings (uses GOOGLE_ prefix, falls back to GMAIL_ for compatibility)
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID") or os.getenv("GMAIL_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET") or os.getenv("GMAIL_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI") or os.getenv("GMAIL_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback")
 
 # Microsoft OAuth settings (optional)
 MICROSOFT_CLIENT_ID = os.getenv("MICROSOFT_CLIENT_ID")

@@ -802,7 +802,7 @@
             
             // First check if user is authenticated via session cookie
             try {
-                const authCheckResponse = await fetch('http://3.233.250.55:8000/api/auth/check', {
+                const authCheckResponse = await fetch('https://api.saigbox.com/api/auth/check', {
                     credentials: 'include'
                 });
                 
@@ -835,7 +835,7 @@
                 if (authToken) {
                     // Verify token is still valid
                     try {
-                        const response = await fetch('http://3.233.250.55:8000/api/user/me', {
+                        const response = await fetch('https://api.saigbox.com/api/user/me', {
                             headers: {
                                 'Authorization': `Bearer ${authToken}`
                             }
@@ -1686,7 +1686,7 @@
                     }
                     
                     // Learn from correction
-                    await fetch('http://3.233.250.55:8000/api/emails/urgency/learn', {
+                    await fetch('https://api.saigbox.com/api/emails/urgency/learn', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -1721,7 +1721,7 @@
                 const syncBtn = document.querySelector('.fa-sync-alt');
                 syncBtn.classList.add('fa-spin');
                 
-                const response = await fetch('http://3.233.250.55:8000/api/emails/sync', {
+                const response = await fetch('https://api.saigbox.com/api/emails/sync', {
                     method: 'POST',
                     headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`
@@ -1902,7 +1902,7 @@
         
         async function loadActionItems() {
             try {
-                const response = await fetch('http://3.233.250.55:8000/api/actions', {
+                const response = await fetch('https://api.saigbox.com/api/actions', {
                     headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`
                     } : {},
@@ -1993,7 +1993,7 @@
         
         async function loadTrash() {
             try {
-                const response = await fetch('http://3.233.250.55:8000/api/trash', {
+                const response = await fetch('https://api.saigbox.com/api/trash', {
                     headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`
                     } : {},
@@ -2122,7 +2122,7 @@
             
             // Send to SAIG
             try {
-                const response = await fetch('http://3.233.250.55:8000/api/saig/chat', {
+                const response = await fetch('https://api.saigbox.com/api/saig/chat', {
                     method: 'POST',
                     headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`,
@@ -2177,7 +2177,7 @@
             
             // Send to SAIG API
             try {
-                const response = await fetch('http://3.233.250.55:8000/api/saig/chat', {
+                const response = await fetch('https://api.saigbox.com/api/saig/chat', {
                     method: 'POST',
                     headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`,
@@ -2572,7 +2572,7 @@
             }
             
             try {
-                const response = await fetch('http://3.233.250.55:8000/api/emails/compose', {
+                const response = await fetch('https://api.saigbox.com/api/emails/compose', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${authToken}`,
@@ -2627,7 +2627,7 @@
             }
             
             try {
-                const response = await fetch('http://3.233.250.55:8000/api/emails/compose', {
+                const response = await fetch('https://api.saigbox.com/api/emails/compose', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${authToken}`,
@@ -2668,7 +2668,7 @@
             };
             
             try {
-                const response = await fetch('http://3.233.250.55:8000/api/emails/drafts', {
+                const response = await fetch('https://api.saigbox.com/api/emails/drafts', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${authToken}`,
@@ -3008,7 +3008,7 @@ Generate a thoughtful and contextually appropriate response that:
 4. Includes a proper greeting and closing`;
                 
                 // Send message to SAIG for reply generation
-                const response = await fetch('http://3.233.250.55:8000/api/saig/chat', {
+                const response = await fetch('https://api.saigbox.com/api/saig/chat', {
                     method: 'POST',
                     headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`,
@@ -3124,7 +3124,7 @@ Generate a thoughtful and contextually appropriate response that:
             
             try {
                 // Send the reply using the reply endpoint to maintain thread context
-                const response = await fetch('http://3.233.250.55:8000/api/emails/reply', {
+                const response = await fetch('https://api.saigbox.com/api/emails/reply', {
                     method: 'POST',
                     headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`,
@@ -3191,7 +3191,7 @@ Generate a thoughtful and contextually appropriate response that:
                 // Show sending status in SAIG chat
                 addChatMessage('📤 Sending email...', 'assistant');
                 
-                const response = await fetch('http://3.233.250.55:8000/api/emails/compose', {
+                const response = await fetch('https://api.saigbox.com/api/emails/compose', {
                     method: 'POST',
                     headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`,
@@ -3290,7 +3290,7 @@ Generate a thoughtful and contextually appropriate response that:
         async function logout() {
             try {
                 // Call logout endpoint to clear session cookies
-                await fetch('http://3.233.250.55:8000/api/auth/logout', {
+                await fetch('https://api.saigbox.com/api/auth/logout', {
                     method: 'POST',
                     credentials: 'include'
                 });
@@ -3382,7 +3382,7 @@ Generate a thoughtful and contextually appropriate response that:
             if (!confirm('Empty all trash? This cannot be undone.')) return;
             
             try {
-                const response = await fetch('http://3.233.250.55:8000/api/trash/empty', {
+                const response = await fetch('https://api.saigbox.com/api/trash/empty', {
                     method: 'DELETE',
                     headers: {
                         'Authorization': `Bearer ${authToken}`
@@ -3454,7 +3454,7 @@ Generate a thoughtful and contextually appropriate response that:
                     body.due_date = new Date(dueDate).toISOString();
                 }
                 
-                const response = await fetch('http://3.233.250.55:8000/api/actions', {
+                const response = await fetch('https://api.saigbox.com/api/actions', {
                     method: 'POST',
                     headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`,
@@ -3556,7 +3556,7 @@ Generate a thoughtful and contextually appropriate response that:
             }
             
             try {
-                const response = await fetch('http://3.233.250.55:8000/api/huddles', {
+                const response = await fetch('https://api.saigbox.com/api/huddles', {
                     method: 'POST',
                     headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`,
@@ -3970,7 +3970,7 @@ Generate a thoughtful and contextually appropriate response that:
         
         async function replyToEmail(emailId, body) {
             try {
-                const response = await fetch('http://3.233.250.55:8000/api/emails/reply', {
+                const response = await fetch('https://api.saigbox.com/api/emails/reply', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${authToken}`,
