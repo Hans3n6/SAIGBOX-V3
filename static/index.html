@@ -1719,7 +1719,10 @@
         async function syncEmails() {
             try {
                 const syncBtn = document.querySelector('.fa-sync-alt');
+                const syncStatus = document.getElementById('sync-status');
+                
                 syncBtn.classList.add('fa-spin');
+                if (syncStatus) syncStatus.textContent = 'Syncing...';
                 
                 const response = await fetch('/api/emails/sync', {
                     method: 'POST',
@@ -1731,6 +1734,7 @@
                 
                 if (response.ok) {
                     const result = await response.json();
+                    if (syncStatus) syncStatus.textContent = `Last sync: ${new Date().toLocaleTimeString()}`;
                     
                     // If new emails were synced, fetch just the new ones
                     if (result.synced > 0) {
@@ -3278,13 +3282,37 @@ Generate a thoughtful and contextually appropriate response that:
         }
         
         function startAutoSync() {
-            // Disabled auto-sync to prevent clearing loaded emails
-            // Users can manually sync using the sync button
-            // setInterval(() => {
-            //     if (currentView === 'inbox') {
-            //         syncEmails();
-            //     }
-            // }, 30000); // Sync every 30 seconds
+            // Auto-sync every 60 seconds when in inbox view
+            setInterval(async () => {
+                if (currentView === 'inbox' && !document.hidden) {
+                    console.log('Auto-syncing emails...');
+                    try {
+                        const response = await fetch('/api/emails/sync', {
+                            method: 'POST',
+                            headers: authToken !== 'session' ? {
+                                'Authorization': `Bearer ${authToken}`
+                            } : {},
+                            credentials: 'include'
+                        });
+                        
+                        if (response.ok) {
+                            const result = await response.json();
+                            if (result.emails_synced > 0) {
+                                console.log(`Auto-sync: ${result.emails_synced} new emails`);
+                                const syncStatus = document.getElementById('sync-status');
+                                if (syncStatus) {
+                                    syncStatus.textContent = `Auto-synced: ${new Date().toLocaleTimeString()}`;
+                                }
+                                // Reload emails to show new ones
+                                await loadEmails();
+                                showNotification(`${result.emails_synced} new emails synced`, 'info');
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Auto-sync error:', error);
+                    }
+                }
+            }, 60000); // Sync every 60 seconds
         }
         
         async function logout() {
