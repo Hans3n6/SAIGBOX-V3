@@ -1,0 +1,29 @@
+version: 1
+backend:
+  phases:
+    preBuild:
+      commands:
+        - echo "Installing dependencies..."
+        - pip install -r requirements.txt
+    build:
+      commands:
+        - echo "Building application..."
+    postBuild:
+      commands:
+        - echo "Build completed"
+  artifacts:
+    baseDirectory: /
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - .pip/**/*
+frontend:
+  phases:
+    build:
+      commands:
+        - echo "No frontend build required - static files served by FastAPI"
+  artifacts:
+    baseDirectory: static
+    files:
+      - '**/*'
