@@ -370,11 +370,16 @@ async def trigger_sync(
     try:
         # Parse request body if JSON
         body = {}
-        if request.headers.get('content-type') == 'application/json':
-            body = await request.json()
+        content_type = request.headers.get('content-type', '')
+        if 'application/json' in content_type:
+            try:
+                body = await request.json()
+            except:
+                body = {}
         
         max_results = body.get('max_results', 50)
         page_token = body.get('page_token', None)
+        logger.info(f"Sync request from {current_user.email}: max_results={max_results}, page_token={page_token}")
         
         # Store page tokens in session for continuous fetching
         if not hasattr(app.state, 'gmail_tokens'):

@@ -115,7 +115,9 @@ class GmailService:
                 ).execute()
                 
                 messages = results.get('messages', [])
-                logger.info(f"Gmail API returned {len(messages)} messages, next_page_token: {results.get('nextPageToken', 'None')}")
+                next_page_token = results.get('nextPageToken')
+                logger.info(f"Gmail API returned {len(messages)} messages, next_page_token: {next_page_token if next_page_token else 'None'}")
+                logger.info(f"Total result size estimate: {results.get('resultSizeEstimate', 'unknown')}")
                 emails = []
                 failed_count = 0
                 
@@ -158,12 +160,14 @@ class GmailService:
                 
                 db.commit()
                 
-                return {
+                result = {
                     'emails': emails,
-                    'next_page_token': results.get('nextPageToken'),
+                    'next_page_token': next_page_token,
                     'total': results.get('resultSizeEstimate', len(emails)),
                     'failed': failed_count
                 }
+                logger.info(f"Returning result with {len(emails)} emails, has more: {bool(next_page_token)}")
+                return result
                 
             except HttpError as e:
                 if e.resp.status == 401:  # Token expired
