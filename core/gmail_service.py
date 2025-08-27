@@ -57,11 +57,14 @@ class GmailService:
             # User authenticated via OAuth (Google/Microsoft)
             access_token = user.oauth_access_token
             refresh_token = user.oauth_refresh_token
+            logger.info(f"Using OAuth tokens for user {user.email}")
         elif user.access_token:
             # Legacy support
             access_token = user.access_token
             refresh_token = user.refresh_token
+            logger.info(f"Using legacy tokens for user {user.email}")
         else:
+            logger.error(f"User {user.email} has no access token")
             raise ValueError("User has no access token. Please re-authenticate.")
         
         credentials = Credentials(
@@ -87,21 +90,23 @@ class GmailService:
     
     def fetch_emails(self, db: Session, user: User, max_results: int = 50, page_token: str = None) -> Dict[str, Any]:
         """Primary email sync method with retry logic"""
+        logger.info(f"Starting fetch_emails for user {user.email}, max_results={max_results}, page_token={page_token}")
         max_retries = 3
         retry_count = 0
         
         while retry_count < max_retries:
             try:
                 service = self.get_service(user)
+                logger.info(f"Gmail service created successfully for {user.email}")
                 
                 # Get last sync token if exists (for incremental sync)
                 last_history_id = getattr(user, 'last_history_id', None) if not page_token else None
                 
                 # Fetch messages with better query
                 query = '-in:trash -in:spam'  # Exclude trash and spam
-                if not page_token:  # For initial sync, get newer emails first
-                    query += ' is:unread OR newer_than:7d'  # Prioritize unread and recent
+                # Remove the restrictive filter to fetch ALL emails, not just recent ones
                 
+                logger.info(f"Calling Gmail API with query: {query}, maxResults: {max_results}")
                 results = service.users().messages().list(
                     userId='me',
                     maxResults=max_results,
@@ -110,6 +115,7 @@ class GmailService:
                 ).execute()
                 
                 messages = results.get('messages', [])
+                logger.info(f"Gmail API returned {len(messages)} messages, next_page_token: {results.get('nextPageToken', 'None')}")
                 emails = []
                 failed_count = 0
                 
