@@ -1121,13 +1121,13 @@
                 
                 // Load both inbox and sent emails
                 const [inboxResponse, sentResponse] = await Promise.all([
-                    fetch(`/api/emails?page=${page}&limit=50`, {
+                    fetch(`/api/emails/?page=${page}&limit=50`, {
                         headers: authToken !== 'session' ? {
                             'Authorization': `Bearer ${authToken}`
                         } : {},
                         credentials: 'include'
                     }),
-                    fetch(`/api/emails/sent?page=${page}&limit=50`, {
+                    fetch(`/api/emails/sent/?page=${page}&limit=50`, {
                         headers: authToken !== 'session' ? {
                             'Authorization': `Bearer ${authToken}`
                         } : {},
@@ -1739,7 +1739,7 @@
                     // If new emails were synced, fetch just the new ones
                     if (result.synced > 0) {
                         // Fetch the first page to get new emails
-                        const newEmailsResponse = await fetch(`/api/emails?page=1&limit=50`, {
+                        const newEmailsResponse = await fetch(`/api/emails/?page=1&limit=50`, {
                             headers: authToken !== 'session' ? {
                                 'Authorization': `Bearer ${authToken}`
                             } : {},
@@ -3772,7 +3772,7 @@ Generate a thoughtful and contextually appropriate response that:
                 if (currentHuddle && currentHuddle.name) {
                     // Search emails with huddle name in subject
                     const searchQuery = `[${currentHuddle.name}]`;
-                    const response = await fetch(`/api/emails?search=${encodeURIComponent(searchQuery)}&limit=20`, {
+                    const response = await fetch(`/api/emails/?search=${encodeURIComponent(searchQuery)}&limit=20`, {
                         headers: authToken !== 'session' ? {
                             'Authorization': `Bearer ${authToken}`
                         } : {},
