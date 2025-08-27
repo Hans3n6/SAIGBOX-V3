@@ -3240,27 +3240,59 @@ Generate a thoughtful and contextually appropriate response that:
         // Utility Functions
         function formatDate(dateString) {
             if (!dateString) return '';
-            const date = new Date(dateString);
+            
+            // Parse the date string - if it doesn't end with 'Z' or timezone offset, assume it's UTC
+            let date;
+            if (dateString && !dateString.endsWith('Z') && !dateString.match(/[+-]\d{2}:\d{2}$/)) {
+                // Add 'Z' to indicate UTC
+                date = new Date(dateString + 'Z');
+            } else {
+                date = new Date(dateString);
+            }
+            
+            // Check if date is valid
+            if (isNaN(date.getTime())) {
+                return dateString; // Return original string if parsing failed
+            }
+            
             const now = new Date();
             const diff = now - date;
             const days = Math.floor(diff / (1000 * 60 * 60 * 24));
             
-            const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+            // Use local timezone for display
+            const timeStr = date.toLocaleTimeString('en-US', { 
+                hour: 'numeric', 
+                minute: '2-digit', 
+                hour12: true,
+                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+            });
             
             if (days === 0) {
                 return `Today, ${timeStr}`;
             } else if (days === 1) {
                 return `Yesterday, ${timeStr}`;
             } else if (days < 7) {
-                const dayStr = date.toLocaleDateString('en-US', { weekday: 'short' });
+                const dayStr = date.toLocaleDateString('en-US', { 
+                    weekday: 'short',
+                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                });
                 return `${dayStr}, ${timeStr}`;
             } else if (date.getFullYear() === now.getFullYear()) {
                 // Same year - show month, day, and time
-                const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                const dateStr = date.toLocaleDateString('en-US', { 
+                    month: 'short', 
+                    day: 'numeric',
+                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                });
                 return `${dateStr}, ${timeStr}`;
             } else {
                 // Different year - show full date with time
-                const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                const dateStr = date.toLocaleDateString('en-US', { 
+                    month: 'short', 
+                    day: 'numeric', 
+                    year: 'numeric',
+                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                });
                 return `${dateStr}, ${timeStr}`;
             }
         }
