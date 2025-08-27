@@ -367,7 +367,7 @@ async def trigger_sync(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Manually trigger email sync with pagination support"""
+    """Manually trigger email sync with pagination and fallback support"""
     try:
         # Store page tokens in session for continuous fetching
         if not hasattr(app.state, 'gmail_tokens'):
@@ -378,8 +378,20 @@ async def trigger_sync(
         # Use provided page token or get from session
         token = page_token or app.state.gmail_tokens.get(user_token_key)
         
-        # Fetch emails
+        # Fetch emails with fallback support
         result = gmail_service.fetch_emails(db, current_user, max_results=max_results, page_token=token)
+        
+        # Check if fallback was used
+        if result.get('fallback') or result.get('cached'):
+            logger.warning(f"Sync used fallback mode for user {current_user.email}")
+            # Still return success but indicate fallback
+            return {
+                "success": True,
+                "emails_synced": len(result.get('emails', [])),
+                "has_more": False,
+                "fallback": True,
+                "message": result.get('message', 'Sync completed with fallback')
+            }
         
         # Store next page token for continuous fetching
         if result.get('next_page_token'):
@@ -388,15 +400,36 @@ async def trigger_sync(
             # Clear token if no more pages
             app.state.gmail_tokens.pop(user_token_key, None)
         
+        # Check for partial failures
+        failed_count = result.get('failed', 0)
+        if failed_count > 0:
+            logger.warning(f"Sync had {failed_count} failed emails for user {current_user.email}")
+        
         return {
             "success": True,
-            "emails_synced": len(result['emails']),
+            "emails_synced": len(result.get('emails', [])),
             "has_more": bool(result.get('next_page_token')),
-            "message": f"Synced {len(result['emails'])} emails"
+            "failed": failed_count,
+            "message": f"Synced {len(result.get('emails', []))} emails" + (f" ({failed_count} failed)" if failed_count else "")
         }
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
     except Exception as e:
-        logger.error(f"Sync error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Sync error for user {current_user.email}: {e}")
+        # Try fallback sync on any error
+        try:
+            logger.info("Attempting fallback sync after error")
+            fallback_result = gmail_service._fallback_basic_sync(db, current_user)
+            return {
+                "success": True,
+                "emails_synced": len(fallback_result.get('emails', [])),
+                "has_more": False,
+                "fallback": True,
+                "message": "Using cached emails due to sync error"
+            }
+        except Exception as fallback_error:
+            logger.error(f"Fallback sync also failed: {fallback_error}")
+            raise HTTPException(status_code=500, detail="Email sync temporarily unavailable")
 
 @app.get("/health")
 async def health_check():

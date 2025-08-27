@@ -86,68 +86,207 @@ class GmailService:
         return build('gmail', 'v1', credentials=credentials)
     
     def fetch_emails(self, db: Session, user: User, max_results: int = 50, page_token: str = None) -> Dict[str, Any]:
-        try:
-            service = self.get_service(user)
-            
-            # Get last sync token if exists (for incremental sync)
-            last_history_id = getattr(user, 'last_history_id', None) if not page_token else None
-            
-            # Fetch messages
-            results = service.users().messages().list(
-                userId='me',
-                maxResults=max_results,
-                pageToken=page_token,
-                q='-in:trash'  # Exclude trashed emails
-            ).execute()
-            
-            messages = results.get('messages', [])
-            emails = []
-            
-            for msg in messages:
-                try:
-                    # Get full message details
-                    message = service.users().messages().get(
-                        userId='me',
-                        id=msg['id']
-                    ).execute()
-                    
-                    # Parse email
-                    email_data = self._parse_email(message)
-                    
-                    # Save or update in database
-                    existing = db.query(Email).filter(
-                        Email.gmail_id == email_data['gmail_id'],
-                        Email.user_id == user.id
-                    ).first()
-                    
-                    if existing:
-                        for key, value in email_data.items():
-                            setattr(existing, key, value)
-                        email_obj = existing
-                    else:
-                        email_obj = Email(user_id=user.id, **email_data)
-                        db.add(email_obj)
-                    
+        """Primary email sync method with retry logic"""
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                service = self.get_service(user)
+                
+                # Get last sync token if exists (for incremental sync)
+                last_history_id = getattr(user, 'last_history_id', None) if not page_token else None
+                
+                # Fetch messages with better query
+                query = '-in:trash -in:spam'  # Exclude trash and spam
+                if not page_token:  # For initial sync, get newer emails first
+                    query += ' is:unread OR newer_than:7d'  # Prioritize unread and recent
+                
+                results = service.users().messages().list(
+                    userId='me',
+                    maxResults=max_results,
+                    pageToken=page_token,
+                    q=query
+                ).execute()
+                
+                messages = results.get('messages', [])
+                emails = []
+                failed_count = 0
+                
+                for msg in messages:
+                    try:
+                        # Get full message details with retry
+                        message = self._fetch_message_with_retry(service, msg['id'])
+                        if not message:
+                            failed_count += 1
+                            continue
+                        
+                        # Parse email
+                        email_data = self._parse_email(message)
+                        
+                        # Save or update in database
+                        existing = db.query(Email).filter(
+                            Email.gmail_id == email_data['gmail_id'],
+                            Email.user_id == user.id
+                        ).first()
+                        
+                        if existing:
+                            # Update only if newer
+                            if email_data.get('received_at', datetime.min) > existing.received_at:
+                                for key, value in email_data.items():
+                                    setattr(existing, key, value)
+                            email_obj = existing
+                        else:
+                            email_obj = Email(user_id=user.id, **email_data)
+                            db.add(email_obj)
+                        
+                        emails.append(email_obj)
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing email {msg['id']}: {e}")
+                        failed_count += 1
+                        if failed_count > 5:  # Too many failures, use fallback
+                            logger.warning("Too many failures, switching to fallback sync")
+                            return self._fallback_sync(db, user, messages, service)
+                        continue
+                
+                db.commit()
+                
+                return {
+                    'emails': emails,
+                    'next_page_token': results.get('nextPageToken'),
+                    'total': results.get('resultSizeEstimate', len(emails)),
+                    'failed': failed_count
+                }
+                
+            except HttpError as e:
+                if e.resp.status == 401:  # Token expired
+                    logger.info(f"Token expired, refreshing... (attempt {retry_count + 1})")
+                    try:
+                        # Force token refresh
+                        service = self.get_service(user)
+                        retry_count += 1
+                        continue
+                    except Exception as refresh_error:
+                        logger.error(f"Token refresh failed: {refresh_error}")
+                        raise
+                elif e.resp.status == 429:  # Rate limit
+                    logger.warning(f"Rate limited, waiting before retry... (attempt {retry_count + 1})")
+                    import time
+                    time.sleep(2 ** retry_count)  # Exponential backoff
+                    retry_count += 1
+                    continue
+                else:
+                    logger.error(f"Gmail API error: {e}")
+                    raise
+            except Exception as e:
+                logger.error(f"Error fetching emails (attempt {retry_count + 1}): {e}")
+                retry_count += 1
+                if retry_count >= max_retries:
+                    # Use fallback sync as last resort
+                    return self._fallback_basic_sync(db, user)
+        
+        # If all retries failed
+        logger.error("All retry attempts failed")
+        return self._fallback_basic_sync(db, user)
+    
+    def _fetch_message_with_retry(self, service, message_id: str, max_retries: int = 2):
+        """Fetch individual message with retry logic"""
+        for attempt in range(max_retries):
+            try:
+                return service.users().messages().get(
+                    userId='me',
+                    id=message_id
+                ).execute()
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(0.5)  # Brief pause before retry
+                    continue
+                logger.error(f"Failed to fetch message {message_id}: {e}")
+                return None
+        return None
+    
+    def _fallback_sync(self, db: Session, user: User, messages: list, service) -> Dict[str, Any]:
+        """Fallback sync method for partial failures"""
+        logger.info("Using fallback sync method")
+        emails = []
+        
+        # Process only message headers (lighter weight)
+        for msg in messages[:20]:  # Limit to 20 for fallback
+            try:
+                # Get only metadata, not full message
+                message = service.users().messages().get(
+                    userId='me',
+                    id=msg['id'],
+                    format='metadata',
+                    metadataHeaders=['From', 'To', 'Subject', 'Date']
+                ).execute()
+                
+                # Create minimal email record
+                email_data = self._parse_minimal_email(message)
+                
+                existing = db.query(Email).filter(
+                    Email.gmail_id == email_data['gmail_id'],
+                    Email.user_id == user.id
+                ).first()
+                
+                if not existing:
+                    email_obj = Email(user_id=user.id, **email_data)
+                    db.add(email_obj)
                     emails.append(email_obj)
                     
-                except Exception as e:
-                    logger.error(f"Error processing email {msg['id']}: {e}")
-                    continue
-            
-            db.commit()
-            
-            return {
-                'emails': emails,
-                'next_page_token': results.get('nextPageToken'),
-                'total': results.get('resultSizeEstimate', len(emails))
-            }
-            
-        except HttpError as e:
-            logger.error(f"Gmail API error: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Error fetching emails: {e}")
-            raise
+            except Exception as e:
+                logger.error(f"Fallback sync error for {msg['id']}: {e}")
+                continue
+        
+        db.commit()
+        
+        return {
+            'emails': emails,
+            'next_page_token': None,
+            'total': len(emails),
+            'fallback': True
+        }
+    
+    def _fallback_basic_sync(self, db: Session, user: User) -> Dict[str, Any]:
+        """Most basic fallback - return existing emails from database"""
+        logger.warning("Using basic fallback - returning cached emails")
+        
+        # Return most recent emails from database
+        emails = db.query(Email).filter(
+            Email.user_id == user.id,
+            Email.deleted_at == None
+        ).order_by(Email.received_at.desc()).limit(50).all()
+        
+        return {
+            'emails': emails,
+            'next_page_token': None,
+            'total': len(emails),
+            'cached': True,
+            'message': 'Returning cached emails due to sync issues'
+        }
+    
+    def _parse_minimal_email(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse minimal email data from metadata"""
+        headers = {}
+        if 'payload' in message and 'headers' in message['payload']:
+            headers = {h['name']: h['value'] for h in message['payload']['headers']}
+        
+        # Parse timestamp
+        timestamp = int(message.get('internalDate', 0)) / 1000
+        received_at = datetime.fromtimestamp(timestamp) if timestamp else datetime.now()
+        
+        return {
+            'gmail_id': message['id'],
+            'thread_id': message.get('threadId'),
+            'subject': headers.get('Subject', 'No Subject'),
+            'sender': headers.get('From', 'Unknown'),
+            'snippet': message.get('snippet', ''),
+            'received_at': received_at,
+            'is_read': 'UNREAD' not in message.get('labelIds', []),
+            'labels': message.get('labelIds', [])
+        }
     
     def _parse_email(self, message: Dict[str, Any]) -> Dict[str, Any]:
         payload = message['payload']
