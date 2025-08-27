@@ -219,8 +219,8 @@ async def google_auth_callback(
         access_token = create_access_token(data={"sub": user.email})
         refresh_token = create_refresh_token(data={"sub": user.email})
         
-        # Redirect to dashboard with token
-        response = RedirectResponse(url=f"https://dashboard.saigbox.com?token={access_token}")
+        # Redirect directly to the inbox with authentication cookie set
+        response = RedirectResponse(url="https://api.saigbox.com/")
         response.set_cookie(
             key="access_token",
             value=access_token,
@@ -282,8 +282,8 @@ async def microsoft_auth_callback(
         access_token = create_access_token(data={"sub": user.email})
         refresh_token = create_refresh_token(data={"sub": user.email})
         
-        # Redirect to dashboard with token
-        response = RedirectResponse(url=f"https://dashboard.saigbox.com?token={access_token}")
+        # Redirect directly to the inbox with authentication cookie set
+        response = RedirectResponse(url="https://api.saigbox.com/")
         response.set_cookie(
             key="access_token",
             value=access_token,

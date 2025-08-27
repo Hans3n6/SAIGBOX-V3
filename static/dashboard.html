@@ -37,7 +37,13 @@
         };
         
         function loadDashboard() {
-            // Redirect to the actual dashboard page with backend
+            // The inbox is served from api.saigbox.com
+            // Pass the token as a cookie for authentication
+            const token = localStorage.getItem('access_token');
+            if (token) {
+                document.cookie = `access_token=${token}; domain=.saigbox.com; path=/; secure; samesite=lax`;
+            }
+            // Redirect to the actual inbox interface
             window.location.href = 'https://api.saigbox.com/';
         }
     </script>
