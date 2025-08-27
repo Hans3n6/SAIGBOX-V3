@@ -7,8 +7,9 @@ frontend:
         - mkdir -p dist
         - cp -r static/* dist/
         # Update API endpoints in static files to use production URLs
-        - find dist -name "*.html" -exec sed -i.bak 's|http://localhost:8000|https://api.saigbox.com|g' {} \;
-        - find dist -name "*.html" -exec sed -i.bak 's|/api/|https://api.saigbox.com/api/|g' {} \;
+        - find dist -name "*.html" -exec sed -i.bak 's|http://localhost:8000|http://3.233.250.55:8000|g' {} \;
+        - find dist -name "*.html" -exec sed -i.bak 's|fetch("/api/|fetch("http://3.233.250.55:8000/api/|g' {} \;
+        - find dist -name "*.html" -exec sed -i.bak "s|fetch('/api/|fetch('http://3.233.250.55:8000/api/|g" {} \;
         - rm dist/*.bak
   artifacts:
     baseDirectory: dist
