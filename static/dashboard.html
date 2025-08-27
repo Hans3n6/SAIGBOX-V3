@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAIGBOX Dashboard</title>
+    <script>
+        // Handle authentication on dashboard load
+        window.onload = function() {
+            // Check for token from login redirect
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            const refreshToken = urlParams.get('refresh');
+            
+            if (token) {
+                // Store tokens
+                localStorage.setItem('access_token', token);
+                if (refreshToken) {
+                    localStorage.setItem('refresh_token', refreshToken);
+                }
+                // Clean URL and reload
+                window.history.replaceState({}, document.title, '/');
+                window.location.reload();
+                return;
+            }
+            
+            // Check if we have a stored token
+            const storedToken = localStorage.getItem('access_token');
+            if (!storedToken) {
+                // No token, redirect to login
+                window.location.href = 'http://www.saigbox.com/login';
+                return;
+            }
+            
+            // Load the actual dashboard
+            loadDashboard();
+        };
+        
+        function loadDashboard() {
+            // Redirect to the actual dashboard page with backend
+            window.location.href = 'http://3.233.250.55:8000/';
+        }
+    </script>
+</head>
+<body>
+    <div style="display: flex; justify-content: center; align-items: center; height: 100vh; font-family: system-ui;">
+        <div style="text-align: center;">
+            <h1>Loading SAIGBOX Dashboard...</h1>
+            <div style="margin-top: 20px;">
+                <div style="width: 50px; height: 50px; border: 4px solid #f3f4f6; border-top-color: #10b981; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;"></div>
+            </div>
+        </div>
+    </div>
+    <style>
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</body>
+</html>

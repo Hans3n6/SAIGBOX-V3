@@ -3,14 +3,36 @@ frontend:
   phases:
     build:
       commands:
-        - echo "Preparing static assets..."
+        - echo "Preparing dashboard assets..."
         - mkdir -p dist
-        - cp -r static/* dist/
-        # Update API endpoints in static files to use production URLs
-        - find dist -name "*.html" -exec sed -i.bak 's|http://localhost:8000|http://3.233.250.55:8000|g' {} \;
-        - find dist -name "*.html" -exec sed -i.bak 's|fetch("/api/|fetch("http://3.233.250.55:8000/api/|g' {} \;
-        - find dist -name "*.html" -exec sed -i.bak "s|fetch('/api/|fetch('http://3.233.250.55:8000/api/|g" {} \;
-        - rm dist/*.bak
+        - |
+          cat > dist/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>SAIGBOX Dashboard</title>
+              <script>
+                  // Redirect to backend dashboard with authentication
+                  window.onload = function() {
+                      const token = localStorage.getItem('access_token');
+                      if (!token) {
+                          window.location.href = 'http://www.saigbox.com/login';
+                      } else {
+                          // Load backend dashboard in iframe or redirect
+                          window.location.href = 'http://3.233.250.55:8000/';
+                      }
+                  };
+              </script>
+          </head>
+          <body>
+              <div style="display: flex; justify-content: center; align-items: center; height: 100vh;">
+                  <h1>Loading Dashboard...</h1>
+              </div>
+          </body>
+          </html>
+          EOF
   artifacts:
     baseDirectory: dist
     files:
