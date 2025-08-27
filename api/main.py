@@ -361,14 +361,21 @@ async def get_me(current_user: User = Depends(get_current_user)):
 
 @app.post("/api/emails/sync")
 async def trigger_sync(
+    request: Request,
     background_tasks: BackgroundTasks,
-    max_results: int = 50,
-    page_token: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Manually trigger email sync with pagination and fallback support"""
     try:
+        # Parse request body if JSON
+        body = {}
+        if request.headers.get('content-type') == 'application/json':
+            body = await request.json()
+        
+        max_results = body.get('max_results', 50)
+        page_token = body.get('page_token', None)
+        
         # Store page tokens in session for continuous fetching
         if not hasattr(app.state, 'gmail_tokens'):
             app.state.gmail_tokens = {}

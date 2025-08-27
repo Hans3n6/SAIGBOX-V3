@@ -215,6 +215,14 @@
                         <div id="email-list" class="divide-y overflow-x-hidden" style="width: 100%;">
                             <!-- Emails will be loaded here -->
                         </div>
+                        <!-- Fetch more from Gmail button -->
+                        <div id="fetch-more-container" class="p-4 text-center hidden">
+                            <button onclick="fetchMoreFromGmail()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center justify-center mx-auto">
+                                <i class="fas fa-cloud-download-alt mr-2"></i>
+                                Fetch More from Gmail
+                            </button>
+                            <p class="text-sm text-gray-500 mt-2">Load more emails from your Gmail account</p>
+                        </div>
                         <div id="email-loader" class="hidden p-4 text-center">
                             <div class="loader mx-auto"></div>
                             <p class="text-sm text-gray-500 mt-2">Loading more emails...</p>
@@ -866,6 +874,11 @@
             setupInfiniteScroll();
             setupResizeHandler();
             startAutoSync();
+            // Trigger initial sync to fetch all emails from Gmail
+            setTimeout(() => {
+                console.log('Triggering initial email sync from Gmail...');
+                syncEmails(null, true); // Start continuous sync
+            }, 2000);
         }
         
         function setupEventListeners() {
@@ -995,6 +1008,9 @@
                     if (!isLoading && hasMoreEmails && !isAutoLoading) {
                         console.log('Fallback: Near bottom, loading more emails...', { currentPage, hasMoreEmails });
                         loadEmails(null, true); // Let loadEmails determine next page
+                    } else if (!isLoading && !hasMoreEmails && !isAutoLoading) {
+                        // No more emails in local DB, show fetch from Gmail button
+                        document.getElementById('fetch-more-container').classList.remove('hidden');
                     }
                 }
                 
@@ -1716,72 +1732,111 @@
             }
         }
         
-        async function syncEmails() {
+        async function syncEmails(pageToken = null, continuous = false) {
             try {
                 const syncBtn = document.querySelector('.fa-sync-alt');
                 const syncStatus = document.getElementById('sync-status');
                 
-                syncBtn.classList.add('fa-spin');
-                if (syncStatus) syncStatus.textContent = 'Syncing...';
+                if (!continuous) {
+                    syncBtn.classList.add('fa-spin');
+                    if (syncStatus) syncStatus.textContent = 'Syncing...';
+                }
+                
+                // Build request body
+                const requestBody = {
+                    max_results: 50
+                };
+                if (pageToken) {
+                    requestBody.page_token = pageToken;
+                }
                 
                 const response = await fetch('/api/emails/sync', {
                     method: 'POST',
-                    headers: authToken !== 'session' ? {
-                        'Authorization': `Bearer ${authToken}`
-                    } : {},
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(authToken !== 'session' ? {'Authorization': `Bearer ${authToken}`} : {})
+                    },
+                    body: JSON.stringify(requestBody),
                     credentials: 'include'
                 });
                 
                 if (response.ok) {
                     const result = await response.json();
-                    if (syncStatus) syncStatus.textContent = `Last sync: ${new Date().toLocaleTimeString()}`;
                     
-                    // If new emails were synced, fetch just the new ones
-                    if (result.synced > 0) {
-                        // Fetch the first page to get new emails
-                        const newEmailsResponse = await fetch(`/api/emails/?page=1&limit=50`, {
-                            headers: authToken !== 'session' ? {
-                                'Authorization': `Bearer ${authToken}`
-                            } : {},
-                            credentials: 'include'
-                        });
+                    // Check if using fallback or cached data
+                    if (result.fallback || result.cached) {
+                        console.log('Sync using fallback/cached mode:', result.message);
+                        if (!continuous) {
+                            showNotification(result.message || 'Using cached emails', 'info');
+                        }
+                    } else {
+                        // Normal sync succeeded
+                        if (!continuous) {
+                            if (syncStatus) syncStatus.textContent = `Last sync: ${new Date().toLocaleTimeString()}`;
+                        }
                         
-                        if (newEmailsResponse.ok) {
-                            const newData = await newEmailsResponse.json();
-                            const newEmails = newData.emails || [];
-                            
-                            // Add only truly new emails to the beginning
-                            const existingIds = new Set(allLoadedEmails.map(e => e.id));
-                            const uniqueNewEmails = newEmails.filter(e => !existingIds.has(e.id));
-                            
-                            if (uniqueNewEmails.length > 0) {
-                                // Add new emails to the beginning of the list
-                                allLoadedEmails = [...uniqueNewEmails, ...allLoadedEmails];
-                                emails = [...allLoadedEmails];
-                                
-                                // Re-render with current filter
-                                applyCurrentFilter();
+                        // If new emails were synced, fetch and display them
+                        if (result.emails_synced > 0) {
+                            // Reload the current page to show new emails
+                            await loadEmails(1, false);
+                        }
+                        
+                        // Continue fetching if there are more emails
+                        if (result.has_more) {
+                            console.log('More emails available, continuing sync...');
+                            // Continue syncing in background
+                            setTimeout(() => {
+                                syncEmails(null, true); // Let backend manage the token
+                            }, 1000);
+                        } else if (!continuous) {
+                            // Show sync results only for manual sync
+                            let message = `Synced ${result.emails_synced || 0} new email(s)`;
+                            if (result.failed > 0) {
+                                message += ` (${result.failed} failed)`;
                             }
+                            showNotification(message, 'success');
                         }
                     }
-                    
-                    // Show sync results
-                    let message = `Synced ${result.synced || 0} new email(s)`;
-                    if (result.urgent > 0) {
-                        message += `, ${result.urgent} marked as urgent`;
-                    }
-                    showNotification(message, 'success');
                     
                     // Update counts
                     updateUrgentCount();
                 } else {
-                    showNotification('Failed to sync emails', 'error');
+                    if (!continuous) {
+                        showNotification('Failed to sync emails', 'error');
+                    }
                 }
                 
-                syncBtn.classList.remove('fa-spin');
+                if (!continuous) {
+                    syncBtn.classList.remove('fa-spin');
+                }
             } catch (error) {
                 console.error('Error syncing emails:', error);
-                document.querySelector('.fa-sync-alt').classList.remove('fa-spin');
+                if (!continuous) {
+                    document.querySelector('.fa-sync-alt').classList.remove('fa-spin');
+                    showNotification('Sync error: ' + error.message, 'error');
+                }
+            }
+        }
+        
+        async function fetchMoreFromGmail() {
+            try {
+                const fetchBtn = document.querySelector('#fetch-more-container button');
+                const originalText = fetchBtn.innerHTML;
+                fetchBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Fetching...';
+                fetchBtn.disabled = true;
+                
+                // Trigger sync to fetch more from Gmail
+                await syncEmails(null, false);
+                
+                // Hide the button after fetching
+                document.getElementById('fetch-more-container').classList.add('hidden');
+                
+                fetchBtn.innerHTML = originalText;
+                fetchBtn.disabled = false;
+            } catch (error) {
+                console.error('Error fetching more from Gmail:', error);
+                const fetchBtn = document.querySelector('#fetch-more-container button');
+                fetchBtn.disabled = false;
             }
         }
         
