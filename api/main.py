@@ -219,13 +219,13 @@ async def google_auth_callback(
         access_token = create_access_token(data={"sub": user.email})
         refresh_token = create_refresh_token(data={"sub": user.email})
         
-        # Redirect to app with token in cookie
-        response = RedirectResponse(url="/")
+        # Redirect to dashboard with token
+        response = RedirectResponse(url=f"https://dashboard.saigbox.com?token={access_token}")
         response.set_cookie(
             key="access_token",
             value=access_token,
             httponly=True,
-            secure=False,  # Set to True in production
+            secure=True,  # Use HTTPS in production
             samesite="lax",
             max_age=86400
         )
@@ -233,7 +233,7 @@ async def google_auth_callback(
             key="refresh_token",
             value=refresh_token,
             httponly=True,
-            secure=False,
+            secure=True,  # Use HTTPS in production
             samesite="lax",
             max_age=2592000  # 30 days
         )
@@ -282,13 +282,13 @@ async def microsoft_auth_callback(
         access_token = create_access_token(data={"sub": user.email})
         refresh_token = create_refresh_token(data={"sub": user.email})
         
-        # Redirect with cookies
-        response = RedirectResponse(url="/")
+        # Redirect to dashboard with token
+        response = RedirectResponse(url=f"https://dashboard.saigbox.com?token={access_token}")
         response.set_cookie(
             key="access_token",
             value=access_token,
             httponly=True,
-            secure=False,
+            secure=True,  # Use HTTPS in production
             samesite="lax",
             max_age=86400
         )
@@ -296,9 +296,9 @@ async def microsoft_auth_callback(
             key="refresh_token",
             value=refresh_token,
             httponly=True,
-            secure=False,
+            secure=True,  # Use HTTPS in production
             samesite="lax",
-            max_age=2592000
+            max_age=2592000  # 30 days
         )
         
         return response
