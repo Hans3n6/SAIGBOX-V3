@@ -1,0 +1,13 @@
+{
+  "name": "saigbox-dashboard",
+  "version": "3.0.0",
+  "description": "SAIGBOX V3 Dashboard",
+  "scripts": {
+    "start": "node server.js",
+    "build": "echo 'No build step required for FastAPI'"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {}
+}

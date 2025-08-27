@@ -1,29 +1,18 @@
 version: 1
-backend:
-  phases:
-    preBuild:
-      commands:
-        - echo "Installing dependencies..."
-        - pip install -r requirements.txt
-    build:
-      commands:
-        - echo "Building application..."
-    postBuild:
-      commands:
-        - echo "Build completed"
-  artifacts:
-    baseDirectory: /
-    files:
-      - '**/*'
-  cache:
-    paths:
-      - .pip/**/*
 frontend:
   phases:
     build:
       commands:
-        - echo "No frontend build required - static files served by FastAPI"
+        - echo "Preparing static assets..."
+        - mkdir -p dist
+        - cp -r static/* dist/
+        # Update API endpoints in static files to use production URLs
+        - find dist -name "*.html" -exec sed -i.bak 's|http://localhost:8000|https://api.saigbox.com|g' {} \;
+        - find dist -name "*.html" -exec sed -i.bak 's|/api/|https://api.saigbox.com/api/|g' {} \;
+        - rm dist/*.bak
   artifacts:
-    baseDirectory: static
+    baseDirectory: dist
     files:
       - '**/*'
+  cache:
+    paths: []

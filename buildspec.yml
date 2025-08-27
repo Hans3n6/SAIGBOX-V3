@@ -1,39 +1,33 @@
 version: 1
-applications:
-  - backend:
-      phases:
-        preBuild:
-          commands:
-            - echo "Installing Python dependencies..."
-            - python -m pip install --upgrade pip
-            - pip install -r requirements.txt
-        build:
-          commands:
-            - echo "Building FastAPI application..."
-            # Copy all necessary files to output directory
-            - mkdir -p build
-            - cp -r api build/
-            - cp -r core build/
-            - cp -r static build/
-            - cp requirements.txt build/
-            # Create startup script
-            - |
-              cat > build/start.sh << 'EOF'
-              #!/bin/bash
-              uvicorn api.main:app --host 0.0.0.0 --port 8000
-              EOF
-            - chmod +x build/start.sh
-      artifacts:
-        baseDirectory: build
-        files:
-          - '**/*'
-    appRoot: .
-    frontend:
-      phases:
-        build:
-          commands:
-            - echo "Static files will be served by FastAPI"
-      artifacts:
-        baseDirectory: static
-        files:
-          - '**/*'
+backend:
+  phases:
+    preBuild:
+      commands:
+        - echo "Installing Python dependencies..."
+        - python -m pip install --upgrade pip
+        - pip install -r requirements.txt
+    build:
+      commands:
+        - echo "Building FastAPI application..."
+        # Copy all necessary files to output directory
+        - mkdir -p .amplify-hosting
+        - cp -r api .amplify-hosting/
+        - cp -r core .amplify-hosting/
+        - cp -r static .amplify-hosting/
+        - cp requirements.txt .amplify-hosting/
+        - cp start.sh .amplify-hosting/
+        - cp deploy-manifest.json .amplify-hosting/
+        - chmod +x .amplify-hosting/start.sh
+  artifacts:
+    baseDirectory: .amplify-hosting
+    files:
+      - '**/*'
+frontend:
+  phases:
+    build:
+      commands:
+        - echo "Static files will be served by FastAPI"
+  artifacts:
+    baseDirectory: static
+    files:
+      - '**/*'

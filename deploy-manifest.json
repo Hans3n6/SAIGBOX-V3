@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "framework": {
+    "name": "custom",
+    "version": "1.0.0"
+  },
+  "routes": [
+    {
+      "path": "/*",
+      "target": {
+        "kind": "Server",
+        "src": "default"
+      },
+      "fallback": {
+        "kind": "Server",
+        "src": "default"
+      }
+    }
+  ],
+  "computeResources": [
+    {
+      "name": "default",
+      "runtime": "python3.11",
+      "entrypoint": "start.sh"
+    }
+  ]
+}
