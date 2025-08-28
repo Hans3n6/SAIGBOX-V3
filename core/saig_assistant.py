@@ -2,9 +2,10 @@ import os
 import json
 import logging
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import httpx
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from core.database import Email, User, ChatHistory, ActionItem
 from core.gmail_service import GmailService
@@ -391,69 +392,299 @@ Return as JSON with keys: title, description, priority (high/medium/low), due_da
         
         return response
     
+    async def _find_emails_by_description(self, db: Session, user: User, description: str) -> List[Dict]:
+        """Find emails based on natural language description"""
+        
+        # Extract search criteria from description
+        prompt = f"""Extract email search criteria from this description: "{description}"
+        
+Return as JSON with any of these fields that apply:
+- sender: email address or name of sender
+- subject: keywords from subject line
+- time_period: recent/today/yesterday/last_week/last_month/older_than_X
+- read_status: read/unread
+- has_attachments: true/false
+- content: keywords from email body
+- count: number of emails if specified (e.g. "last 5 emails")
+
+If the description mentions "all" or doesn't specify a limit, set count to null.
+Return only the fields that are clearly mentioned."""
+
+        try:
+            criteria_json = await self._call_anthropic(prompt, max_tokens=200, temperature=0.3)
+            criteria = json.loads(criteria_json.strip())
+            
+            # Build query
+            query = db.query(Email).filter(
+                Email.user_id == user.id,
+                Email.deleted_at.is_(None)
+            )
+            
+            # Apply filters based on criteria
+            if criteria.get('sender'):
+                sender_term = f"%{criteria['sender']}%"
+                query = query.filter(
+                    or_(
+                        Email.sender.ilike(sender_term),
+                        Email.sender_name.ilike(sender_term)
+                    )
+                )
+            
+            if criteria.get('subject'):
+                query = query.filter(Email.subject.ilike(f"%{criteria['subject']}%"))
+            
+            if criteria.get('content'):
+                content_term = f"%{criteria['content']}%"
+                query = query.filter(
+                    or_(
+                        Email.body_text.ilike(content_term),
+                        Email.snippet.ilike(content_term)
+                    )
+                )
+            
+            if criteria.get('read_status'):
+                if criteria['read_status'] == 'read':
+                    query = query.filter(Email.is_read == True)
+                elif criteria['read_status'] == 'unread':
+                    query = query.filter(Email.is_read == False)
+            
+            if criteria.get('has_attachments'):
+                query = query.filter(Email.has_attachments == True)
+            
+            # Handle time periods
+            if criteria.get('time_period'):
+                from datetime import timedelta
+                now = datetime.utcnow()
+                time_period = criteria['time_period'].lower()
+                
+                if 'today' in time_period:
+                    query = query.filter(Email.received_at >= now.replace(hour=0, minute=0, second=0))
+                elif 'yesterday' in time_period:
+                    yesterday = now - timedelta(days=1)
+                    query = query.filter(
+                        Email.received_at >= yesterday.replace(hour=0, minute=0, second=0),
+                        Email.received_at < now.replace(hour=0, minute=0, second=0)
+                    )
+                elif 'last_week' in time_period or 'last week' in time_period:
+                    query = query.filter(Email.received_at >= now - timedelta(days=7))
+                elif 'last_month' in time_period or 'last month' in time_period:
+                    query = query.filter(Email.received_at >= now - timedelta(days=30))
+                elif 'older_than' in time_period:
+                    # Extract number of days
+                    import re
+                    days_match = re.search(r'\d+', time_period)
+                    if days_match:
+                        days = int(days_match.group())
+                        query = query.filter(Email.received_at < now - timedelta(days=days))
+            
+            # Apply count limit if specified
+            if criteria.get('count'):
+                emails = query.order_by(Email.received_at.desc()).limit(criteria['count']).all()
+            else:
+                # Default to reasonable limit for safety
+                emails = query.order_by(Email.received_at.desc()).limit(100).all()
+            
+            # Convert to dict format
+            return [
+                {
+                    'id': e.id,
+                    'gmail_id': e.gmail_id,
+                    'subject': e.subject,
+                    'sender': e.sender_name or e.sender,
+                    'date': e.received_at,
+                    'is_read': e.is_read
+                }
+                for e in emails
+            ]
+            
+        except Exception as e:
+            logger.error(f"Error finding emails by description: {e}")
+            return []
+    
     async def _delete_email(self, db: Session, user: User, message: str, 
                            context: Dict[str, Any]) -> tuple:
-        """Move email to trash"""
-        if not context.get('selected_email'):
-            return "Please select an email first, then ask me to delete it.", []
+        """Move email to trash with natural language search"""
         
-        selected_email = context['selected_email']
+        # Check if user is confirming a previous delete request
+        if context.get('pending_delete'):
+            if any(word in message.lower() for word in ['yes', 'confirm', 'proceed', 'go ahead', 'sure', 'ok', 'delete']):
+                # Execute the pending delete
+                pending = context['pending_delete']
+                success_count = 0
+                failed_count = 0
+                
+                for email_data in pending['emails']:
+                    email = db.query(Email).filter(
+                        Email.id == email_data['id'],
+                        Email.user_id == user.id
+                    ).first()
+                    
+                    if email and self.gmail_service.move_to_trash(user, email.gmail_id):
+                        email.deleted_at = datetime.utcnow()
+                        success_count += 1
+                    else:
+                        failed_count += 1
+                
+                db.commit()
+                
+                if success_count > 0:
+                    result = f"Successfully moved {success_count} email(s) to trash."
+                    if failed_count > 0:
+                        result += f" {failed_count} email(s) failed."
+                    return result, ["emails_deleted"]
+                else:
+                    return "Failed to delete emails. Please try again.", []
+            else:
+                return "Cancelled. No emails were deleted.", []
         
-        # Get the email from database
-        email = db.query(Email).filter(
-            Email.id == selected_email['id'],
-            Email.user_id == user.id
-        ).first()
+        # First try to find emails based on the message
+        emails_to_delete = await self._find_emails_by_description(db, user, message)
         
-        if not email:
-            return "Could not find the selected email.", []
-        
-        # Move to trash in Gmail
-        if self.gmail_service.move_to_trash(user, email.gmail_id):
-            # Mark as deleted in database
-            email.deleted_at = datetime.utcnow()
-            db.commit()
-            return f"Moved '{email.subject}' to trash.", ["email_deleted"]
-        else:
-            return "Failed to move email to trash. Please try again.", []
-    
-    async def _move_to_folder(self, db: Session, user: User, message: str, 
-                             context: Dict[str, Any]) -> tuple:
-        """Move email to a specific folder/label"""
-        if not context.get('selected_email'):
-            return "Please select an email first, then ask me to move it to a folder.", []
-        
-        # Extract folder name from message
-        prompt = f"""Extract the folder/label name from this message: "{message}"
-Return only the folder name, nothing else. Common folders are: Work, Personal, Important, Follow-up, Archive, Projects, etc."""
-        
-        try:
-            folder_name = await self._call_anthropic(prompt, max_tokens=50, temperature=0.3)
-            folder_name = folder_name.strip()
-            
-            if not folder_name or folder_name.lower() in ['none', 'null', '']:
-                return "Please specify which folder you'd like to move the email to.", []
-            
+        # If no emails found by description and there's a selected email, use that
+        if not emails_to_delete and context.get('selected_email'):
             selected_email = context['selected_email']
-            
-            # Get the email from database
             email = db.query(Email).filter(
                 Email.id == selected_email['id'],
                 Email.user_id == user.id
             ).first()
+            if email:
+                emails_to_delete = [{
+                    'id': email.id,
+                    'subject': email.subject,
+                    'sender': email.sender_name or email.sender,
+                    'date': email.received_at
+                }]
+        
+        if not emails_to_delete:
+            return "I couldn't find any emails matching that description. Please be more specific or select an email first.", []
+        
+        # Create confirmation message
+        if len(emails_to_delete) == 1:
+            email = emails_to_delete[0]
+            confirm_msg = f"""<div class="mb-4">
+<p class="mb-2">I found this email to delete:</p>
+<div class="bg-red-50 border border-red-200 rounded p-3">
+  <p class="font-semibold">{email['subject']}</p>
+  <p class="text-sm text-gray-600">From: {email['sender']}</p>
+</div>
+<p class="mt-3 font-semibold">Are you sure you want to move this to trash?</p>
+<div class="mt-3 flex gap-2">
+  <button onclick="sendMessage('Yes, delete it')" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">
+    Yes, Delete
+  </button>
+  <button onclick="sendMessage('No, cancel')" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded">
+    Cancel
+  </button>
+</div>
+</div>"""
+        else:
+            # Multiple emails
+            email_list = ""
+            for i, email in enumerate(emails_to_delete[:5]):  # Show first 5
+                email_list += f"• {email['subject']} (from {email['sender']})\n"
             
-            if not email:
-                return "Could not find the selected email.", []
+            if len(emails_to_delete) > 5:
+                email_list += f"• ... and {len(emails_to_delete) - 5} more\n"
             
-            # Move to folder in Gmail
-            if self.gmail_service.move_to_label(user, email.gmail_id, folder_name):
-                return f"Moved '{email.subject}' to '{folder_name}' folder.", ["email_moved"]
+            confirm_msg = f"""<div class="mb-4">
+<p class="mb-2">I found {len(emails_to_delete)} email(s) to delete:</p>
+<div class="bg-red-50 border border-red-200 rounded p-3">
+  <pre class="text-sm">{email_list}</pre>
+</div>
+<p class="mt-3 font-semibold text-red-600">⚠️ Are you sure you want to move all {len(emails_to_delete)} emails to trash?</p>
+<div class="mt-3 flex gap-2">
+  <button onclick="sendMessage('Yes, delete all')" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">
+    Yes, Delete All
+  </button>
+  <button onclick="sendMessage('No, cancel')" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded">
+    Cancel
+  </button>
+</div>
+</div>"""
+        
+        # Store pending delete in context for confirmation
+        # This would need to be handled by the frontend to maintain state
+        context['pending_delete'] = {
+            'emails': emails_to_delete,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        return confirm_msg, ["confirmation_required"]
+    
+    async def _move_to_folder(self, db: Session, user: User, message: str, 
+                             context: Dict[str, Any]) -> tuple:
+        """Move emails to a specific folder/label with natural language support"""
+        
+        # Extract folder name and email description from message
+        prompt = f"""Extract information from this message about moving emails: "{message}"
+        
+Return as JSON with:
+- folder_name: the target folder/label name
+- email_description: description of which emails to move (if specified)
+
+If no specific emails are mentioned, set email_description to null."""
+        
+        try:
+            info_json = await self._call_anthropic(prompt, max_tokens=200, temperature=0.3)
+            info = json.loads(info_json.strip())
+            
+            folder_name = info.get('folder_name', '').strip()
+            if not folder_name or folder_name.lower() in ['none', 'null', '']:
+                return "Please specify which folder you'd like to move emails to.", []
+            
+            # Find emails to move
+            emails_to_move = []
+            
+            if info.get('email_description'):
+                # Find emails by description
+                emails_to_move = await self._find_emails_by_description(db, user, info['email_description'])
+            elif context.get('selected_email'):
+                # Use selected email
+                selected_email = context['selected_email']
+                email = db.query(Email).filter(
+                    Email.id == selected_email['id'],
+                    Email.user_id == user.id
+                ).first()
+                if email:
+                    emails_to_move = [{
+                        'id': email.id,
+                        'gmail_id': email.gmail_id,
+                        'subject': email.subject,
+                        'sender': email.sender_name or email.sender
+                    }]
+            
+            if not emails_to_move:
+                return "I couldn't find any emails to move. Please be more specific or select an email first.", []
+            
+            # Move emails to folder
+            success_count = 0
+            failed_count = 0
+            
+            for email_data in emails_to_move:
+                email = db.query(Email).filter(
+                    Email.id == email_data['id'],
+                    Email.user_id == user.id
+                ).first()
+                
+                if email and self.gmail_service.move_to_label(user, email.gmail_id, folder_name):
+                    success_count += 1
+                else:
+                    failed_count += 1
+            
+            if success_count > 0:
+                if success_count == 1:
+                    return f"Moved 1 email to '{folder_name}' folder.", ["emails_moved"]
+                else:
+                    result = f"Successfully moved {success_count} email(s) to '{folder_name}' folder."
+                    if failed_count > 0:
+                        result += f" {failed_count} email(s) failed."
+                    return result, ["emails_moved"]
             else:
-                return f"Failed to move email to '{folder_name}'. Please try again.", []
+                return f"Failed to move emails to '{folder_name}'. Please try again.", []
                 
         except Exception as e:
-            logger.error(f"Error moving email to folder: {e}")
-            return "I had trouble moving the email. Please try again.", []
+            logger.error(f"Error moving emails to folder: {e}")
+            return "I had trouble moving the emails. Please try again.", []
     
     async def _create_folder(self, db: Session, user: User, message: str) -> tuple:
         """Create a new folder/label"""
