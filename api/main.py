@@ -372,9 +372,8 @@ async def force_full_sync(
         all_emails = []
         page_token = None
         page_num = 1
-        max_pages = 50  # Safety limit
         
-        while page_num <= max_pages:
+        while True:  # No limit - fetch ALL emails
             logger.info(f"Fetching page {page_num}...")
             
             # Fetch batch of emails
