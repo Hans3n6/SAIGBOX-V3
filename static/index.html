@@ -221,6 +221,10 @@
                                 <i class="fas fa-cloud-download-alt mr-2"></i>
                                 Fetch More from Gmail
                             </button>
+                            <button onclick="fullSyncFromGmail()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 mt-2 rounded flex items-center justify-center mx-auto text-sm">
+                                <i class="fas fa-sync mr-1"></i>
+                                Full Sync (All Emails)
+                            </button>
                             <p class="text-sm text-gray-500 mt-2">Load more emails from your Gmail account</p>
                         </div>
                         <div id="email-loader" class="hidden p-4 text-center">
@@ -1762,6 +1766,7 @@
                 
                 if (response.ok) {
                     const result = await response.json();
+                    console.log('Sync response:', result);
                     
                     // Check if using fallback or cached data
                     if (result.fallback || result.cached) {
@@ -1771,6 +1776,7 @@
                         }
                     } else {
                         // Normal sync succeeded
+                        console.log(`Sync successful: ${result.emails_synced} emails, has_more: ${result.has_more}`);
                         if (!continuous) {
                             if (syncStatus) syncStatus.textContent = `Last sync: ${new Date().toLocaleTimeString()}`;
                         }
@@ -1837,6 +1843,35 @@
                 console.error('Error fetching more from Gmail:', error);
                 const fetchBtn = document.querySelector('#fetch-more-container button');
                 fetchBtn.disabled = false;
+            }
+        }
+        
+        async function fullSyncFromGmail() {
+            try {
+                showNotification('Starting full sync... This may take a few minutes', 'info');
+                
+                const response = await fetch('/api/emails/sync/full', {
+                    method: 'POST',
+                    headers: authToken !== 'session' ? {
+                        'Authorization': `Bearer ${authToken}`
+                    } : {},
+                    credentials: 'include'
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    showNotification(`Full sync complete! Fetched ${result.total_synced} emails`, 'success');
+                    
+                    // Reload emails to show the new ones
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    showNotification('Full sync failed', 'error');
+                }
+            } catch (error) {
+                console.error('Full sync error:', error);
+                showNotification('Full sync error: ' + error.message, 'error');
             }
         }
         
