@@ -1381,7 +1381,8 @@ Just tell me what you need help with!"""
             # Statistics
             response += "**📈 Statistics:**\n"
             response += f"• Total emails: {total_emails}\n"
-            response += f"• Unread: {unread_emails} ({(unread_emails/total_emails*100):.1f}% if total_emails > 0 else 0})\n"
+            unread_percentage = (unread_emails/total_emails*100) if total_emails > 0 else 0
+            response += f"• Unread: {unread_emails} ({unread_percentage:.1f}%)\n"
             response += f"• Starred: {starred_emails}\n"
             response += f"• Last 7 days: {recent_received} emails\n\n"
             
