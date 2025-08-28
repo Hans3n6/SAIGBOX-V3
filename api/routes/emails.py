@@ -25,6 +25,21 @@ logger = logging.getLogger(__name__)
 urgent_email_queue = asyncio.Queue()
 processing_urgent = False
 
+def clean_email_data(emails):
+    """Clean email data to ensure lists are not None"""
+    for email in emails:
+        if email.labels is None:
+            email.labels = []
+        if email.attachments is None:
+            email.attachments = []
+        if email.recipients is None:
+            email.recipients = []
+        if email.cc is None:
+            email.cc = []
+        if email.bcc is None:
+            email.bcc = []
+    return emails
+
 @router.get("/", response_model=EmailListResponse)
 async def list_emails(
     page: int = Query(1, ge=1),
@@ -77,6 +92,9 @@ async def list_emails(
     offset = (page - 1) * limit
     emails = query.order_by(EmailModel.received_at.desc()).offset(offset).limit(limit).all()
     
+    # Clean email data
+    emails = clean_email_data(emails)
+    
     # Calculate pagination info
     pages = (total + limit - 1) // limit
     
@@ -117,6 +135,9 @@ async def list_sent_emails(
     # Apply pagination
     offset = (page - 1) * limit
     emails = query.order_by(EmailModel.received_at.desc()).offset(offset).limit(limit).all()
+    
+    # Clean email data
+    emails = clean_email_data(emails)
     
     # Calculate pagination info
     pages = (total + limit - 1) // limit
