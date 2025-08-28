@@ -873,11 +873,11 @@
             setupInfiniteScroll();
             setupResizeHandler();
             startAutoSync();
-            // Start automatic full sync on page load
+            // Only use incremental sync - no full sync
             setTimeout(() => {
-                console.log('Starting automatic full Gmail sync...');
-                startFullGmailSync();
-            }, 1000);
+                console.log('Starting incremental sync from Gmail...');
+                syncEmails(null, true); // Start continuous incremental sync
+            }, 2000);
         }
         
         function setupEventListeners() {
@@ -1818,39 +1818,6 @@
         }
         
         
-        async function startFullGmailSync() {
-            // Automatically sync ALL emails from Gmail in the background
-            try {
-                console.log('Starting automatic full Gmail sync...');
-                document.getElementById('sync-indicator').classList.remove('hidden');
-                
-                const response = await fetch('/api/emails/sync/full', {
-                    method: 'POST',
-                    headers: authToken !== 'session' ? {
-                        'Authorization': `Bearer ${authToken}`
-                    } : {},
-                    credentials: 'include'
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    console.log(`Full sync complete: ${result.total_synced} emails fetched`);
-                    
-                    // Refresh the email list to show new emails
-                    if (result.total_synced > 0) {
-                        await loadEmails(1, false);
-                    }
-                    
-                    document.getElementById('sync-indicator').classList.add('hidden');
-                } else {
-                    console.error('Full sync failed');
-                    document.getElementById('sync-indicator').classList.add('hidden');
-                }
-            } catch (error) {
-                console.error('Full sync error:', error);
-                document.getElementById('sync-indicator').classList.add('hidden');
-            }
-        }
         
         async function searchEmails() {
             const query = document.getElementById('search-input').value.trim();

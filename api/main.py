@@ -359,60 +359,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
         "name": current_user.name
     }
 
-@app.post("/api/emails/sync/full")
-async def force_full_sync(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Force full email sync - fetch ALL emails from Gmail"""
-    try:
-        logger.info(f"Starting FULL sync for user {current_user.email}")
-        
-        total_synced = 0
-        all_emails = []
-        page_token = None
-        page_num = 1
-        
-        while True:  # No limit - fetch ALL emails
-            logger.info(f"Fetching page {page_num}...")
-            
-            # Fetch batch of emails
-            result = gmail_service.fetch_emails(
-                db=db,
-                user=current_user,
-                max_results=100,  # Fetch more at once
-                page_token=page_token
-            )
-            
-            # Check for fallback
-            if result.get('fallback') or result.get('cached'):
-                logger.warning("Full sync fell back to cached mode")
-                break
-            
-            emails = result.get('emails', [])
-            total_synced += len(emails)
-            all_emails.extend(emails)
-            
-            logger.info(f"Page {page_num}: Got {len(emails)} emails, total: {total_synced}")
-            
-            # Get next page token
-            page_token = result.get('next_page_token')
-            if not page_token:
-                logger.info("No more pages - full sync complete!")
-                break
-            
-            page_num += 1
-        
-        return {
-            "success": True,
-            "total_synced": total_synced,
-            "pages_fetched": page_num,
-            "message": f"Full sync complete: {total_synced} emails fetched"
-        }
-        
-    except Exception as e:
-        logger.error(f"Full sync error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# Full sync removed - using only incremental sync
 
 @app.post("/api/emails/sync")
 async def trigger_sync(
