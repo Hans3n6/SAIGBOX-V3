@@ -86,7 +86,7 @@ User=ubuntu
 WorkingDirectory=/home/ubuntu/SAIGBOX-V3
 Environment="PATH=/home/ubuntu/SAIGBOX-V3/venv/bin"
 EnvironmentFile=/home/ubuntu/SAIGBOX-V3/.env
-ExecStart=/home/ubuntu/SAIGBOX-V3/venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 2
+ExecStart=/home/ubuntu/SAIGBOX-V3/venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=always
 RestartSec=10
 StandardOutput=journal
