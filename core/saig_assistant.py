@@ -514,11 +514,11 @@ Return only the fields that are clearly mentioned."""
     
     async def _delete_email(self, db: Session, user: User, message: str, 
                            context: Dict[str, Any]) -> tuple:
-        """Move email to trash with natural language search"""
+        """Move email to trash with natural language search and user-friendly confirmation"""
         
         # Check if user is confirming a previous delete request
         if context.get('pending_delete'):
-            if any(word in message.lower() for word in ['yes', 'confirm', 'proceed', 'go ahead', 'sure', 'ok', 'delete']):
+            if any(word in message.lower() for word in ['yes', 'confirm', 'proceed', 'go ahead', 'sure', 'ok', 'trash', 'move']):
                 # Execute the pending delete
                 pending = context['pending_delete']
                 success_count = 0
@@ -539,14 +539,69 @@ Return only the fields that are clearly mentioned."""
                 db.commit()
                 
                 if success_count > 0:
-                    result = f"Successfully moved {success_count} email(s) to trash."
-                    if failed_count > 0:
-                        result += f" {failed_count} email(s) failed."
-                    return result, ["emails_deleted"]
+                    # Create a success message with better formatting
+                    if success_count == 1:
+                        result = f"""<div class="rounded-lg border border-green-200 bg-green-50 p-3">
+  <div class="flex">
+    <div class="flex-shrink-0">
+      <svg class="h-5 w-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+      </svg>
+    </div>
+    <div class="ml-3">
+      <p class="text-sm text-green-800">
+        Email moved to trash successfully. You can restore it from trash within 30 days.
+      </p>
+    </div>
+  </div>
+</div>"""
+                    else:
+                        result = f"""<div class="rounded-lg border border-green-200 bg-green-50 p-3">
+  <div class="flex">
+    <div class="flex-shrink-0">
+      <svg class="h-5 w-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+      </svg>
+    </div>
+    <div class="ml-3">
+      <p class="text-sm text-green-800">
+        Successfully moved {success_count} emails to trash. You can restore them within 30 days.
+        {f'<br/><span class="text-orange-600">{failed_count} email(s) could not be moved.</span>' if failed_count > 0 else ''}
+      </p>
+    </div>
+  </div>
+</div>"""
+                    return result, ["emails_moved_to_trash"]
                 else:
-                    return "Failed to delete emails. Please try again.", []
+                    return """<div class="rounded-lg border border-red-200 bg-red-50 p-3">
+  <div class="flex">
+    <div class="flex-shrink-0">
+      <svg class="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+      </svg>
+    </div>
+    <div class="ml-3">
+      <p class="text-sm text-red-800">
+        Failed to move emails to trash. Please try again.
+      </p>
+    </div>
+  </div>
+</div>""", []
             else:
-                return "Cancelled. No emails were deleted.", []
+                return """<div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+  <div class="flex">
+    <div class="flex-shrink-0">
+      <svg class="h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.293l-3-3a1 1 0 00-1.414 1.414L10.586 9.5H5a1 1 0 100 2h5.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clip-rule="evenodd"/>
+      </svg>
+    </div>
+    <div class="ml-3">
+      <p class="text-sm text-gray-700">
+        Action cancelled. No emails were moved.
+      </p>
+    </div>
+  </div>
+</div>""", []
         
         # First try to find emails based on the message
         emails_to_delete = await self._find_emails_by_description(db, user, message)
@@ -569,48 +624,166 @@ Return only the fields that are clearly mentioned."""
         if not emails_to_delete:
             return "I couldn't find any emails matching that description. Please be more specific or select an email first.", []
         
-        # Create confirmation message
+        # Create confirmation message with improved UI
         if len(emails_to_delete) == 1:
             email = emails_to_delete[0]
-            confirm_msg = f"""<div class="mb-4">
-<p class="mb-2">I found this email to delete:</p>
-<div class="bg-red-50 border border-red-200 rounded p-3">
-  <p class="font-semibold">{email['subject']}</p>
-  <p class="text-sm text-gray-600">From: {email['sender']}</p>
-</div>
-<p class="mt-3 font-semibold">Are you sure you want to move this to trash?</p>
-<div class="mt-3 flex gap-2">
-  <button onclick="sendMessage('Yes, delete it')" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">
-    Yes, Delete
-  </button>
-  <button onclick="sendMessage('No, cancel')" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded">
-    Cancel
-  </button>
-</div>
+            # Format date nicely
+            date_str = ""
+            if email.get('date'):
+                from datetime import datetime
+                if isinstance(email['date'], datetime):
+                    date_str = email['date'].strftime('%b %d, %Y at %I:%M %p')
+            
+            confirm_msg = f"""<div class="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm">
+  <div class="flex items-start space-x-3">
+    <div class="flex-shrink-0">
+      <svg class="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+      </svg>
+    </div>
+    <div class="flex-1">
+      <h3 class="text-sm font-medium text-amber-800">
+        Move to Trash?
+      </h3>
+      <div class="mt-2 text-sm text-amber-700">
+        <p>This email will be moved to your trash folder:</p>
+      </div>
+      
+      <div class="mt-3 rounded-md bg-white p-3 shadow-sm border border-amber-100">
+        <div class="flex items-start space-x-3">
+          <div class="flex-shrink-0 mt-0.5">
+            <svg class="h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/>
+              <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/>
+            </svg>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-gray-900 truncate">
+              {email['subject'] or 'No Subject'}
+            </p>
+            <p class="text-sm text-gray-500">
+              From: {email['sender']}
+            </p>
+            {f'<p class="text-xs text-gray-400">{date_str}</p>' if date_str else ''}
+          </div>
+        </div>
+      </div>
+      
+      <div class="mt-4 text-sm text-amber-600">
+        <p class="flex items-center">
+          <svg class="mr-1.5 h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+          </svg>
+          You can restore this email from trash within 30 days
+        </p>
+      </div>
+      
+      <div class="mt-4 flex space-x-3">
+        <button onclick="sendMessage('Yes, move to trash')" 
+                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-amber-600 hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 transition-colors duration-200">
+          <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+          </svg>
+          Move to Trash
+        </button>
+        <button onclick="sendMessage('Cancel')" 
+                class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors duration-200">
+          <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
 </div>"""
         else:
-            # Multiple emails
-            email_list = ""
+            # Multiple emails - create a more user-friendly list
+            email_items_html = ""
             for i, email in enumerate(emails_to_delete[:5]):  # Show first 5
-                email_list += f"• {email['subject']} (from {email['sender']})\n"
+                email_items_html += f"""
+      <div class="flex items-start space-x-3 py-2 {'border-t border-amber-100' if i > 0 else ''}">
+        <div class="flex-shrink-0 mt-0.5">
+          <svg class="h-4 w-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/>
+            <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/>
+          </svg>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-medium text-gray-900 truncate">
+            {email['subject'] or 'No Subject'}
+          </p>
+          <p class="text-xs text-gray-500">
+            From: {email['sender']}
+          </p>
+        </div>
+      </div>"""
             
             if len(emails_to_delete) > 5:
-                email_list += f"• ... and {len(emails_to_delete) - 5} more\n"
+                email_items_html += f"""
+      <div class="py-2 border-t border-amber-100">
+        <p class="text-sm text-gray-500 italic">
+          ... and {len(emails_to_delete) - 5} more email{'s' if len(emails_to_delete) - 5 > 1 else ''}
+        </p>
+      </div>"""
             
-            confirm_msg = f"""<div class="mb-4">
-<p class="mb-2">I found {len(emails_to_delete)} email(s) to delete:</p>
-<div class="bg-red-50 border border-red-200 rounded p-3">
-  <pre class="text-sm">{email_list}</pre>
-</div>
-<p class="mt-3 font-semibold text-red-600">⚠️ Are you sure you want to move all {len(emails_to_delete)} emails to trash?</p>
-<div class="mt-3 flex gap-2">
-  <button onclick="sendMessage('Yes, delete all')" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">
-    Yes, Delete All
-  </button>
-  <button onclick="sendMessage('No, cancel')" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded">
-    Cancel
-  </button>
-</div>
+            confirm_msg = f"""<div class="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm">
+  <div class="flex items-start space-x-3">
+    <div class="flex-shrink-0">
+      <svg class="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+      </svg>
+    </div>
+    <div class="flex-1">
+      <h3 class="text-sm font-medium text-amber-800">
+        Move {len(emails_to_delete)} Email{'s' if len(emails_to_delete) > 1 else ''} to Trash?
+      </h3>
+      <div class="mt-2 text-sm text-amber-700">
+        <p>The following emails will be moved to your trash folder:</p>
+      </div>
+      
+      <div class="mt-3 rounded-md bg-white p-3 shadow-sm border border-amber-100 max-h-60 overflow-y-auto">
+        {email_items_html}
+      </div>
+      
+      <div class="mt-4 rounded-md bg-amber-100 p-3">
+        <div class="flex">
+          <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+            </svg>
+          </div>
+          <div class="ml-3">
+            <h3 class="text-sm font-medium text-amber-800">
+              Important
+            </h3>
+            <div class="mt-1 text-sm text-amber-700">
+              <p>• All {len(emails_to_delete)} emails will be moved to trash</p>
+              <p>• You can restore them from trash within 30 days</p>
+              <p>• This action cannot be undone after 30 days</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="mt-4 flex space-x-3">
+        <button onclick="sendMessage('Yes, move all to trash')" 
+                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-amber-600 hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 transition-colors duration-200">
+          <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+          </svg>
+          Move All to Trash
+        </button>
+        <button onclick="sendMessage('Cancel')" 
+                class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors duration-200">
+          <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
 </div>"""
         
         # Store pending delete in context for confirmation
@@ -1151,7 +1324,7 @@ Return ONLY valid JSON, no additional text."""
 • Search for emails by keyword
 • Mark emails as read/unread
 • Star or unstar emails
-• Move emails to trash
+• Move emails to trash (recoverable for 30 days)
 • Move emails to folders
 • Create new folders/labels
 • List available folders
@@ -1162,7 +1335,7 @@ Return ONLY valid JSON, no additional text."""
 • "Create a folder called Work"
 • "Move this email to Personal folder"
 • "Show me my folders"
-• "Delete this email" (moves to trash)
+• "Move this email to trash" or "Delete this email"
 
 📝 **Action Items:**
 • Create action items from emails
