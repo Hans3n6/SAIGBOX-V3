@@ -20,7 +20,7 @@ from api.auth import (get_current_user, get_or_create_user, create_access_token,
                       get_microsoft_user_info, verify_oauth_state,
                       store_oauth_tokens, create_refresh_token)
 from api.models import *
-from api.routes import emails, actions, huddles, trash, saig
+from api.routes import emails, actions, huddles, trash, saig, intelligence
 from api.middleware import AuthMiddleware
 from core.database import get_db, User, Email
 from core.gmail_service import GmailService
@@ -57,6 +57,7 @@ app.include_router(actions.router, prefix="/api/actions", tags=["actions"])
 app.include_router(huddles.router, prefix="/api/huddles", tags=["huddles"])
 app.include_router(trash.router, prefix="/api/trash", tags=["trash"])
 app.include_router(saig.router, prefix="/api/saig", tags=["saig"])
+app.include_router(intelligence.router, prefix="/api/intelligence", tags=["intelligence"])
 
 # Gmail service instance
 gmail_service = GmailService()

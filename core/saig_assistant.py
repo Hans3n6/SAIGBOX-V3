@@ -10,6 +10,7 @@ from sqlalchemy import or_
 from core.database import Email, User, ChatHistory, ActionItem
 from core.gmail_service import GmailService
 from core.urgency_detector import UrgencyDetector
+from core.saig_intelligence import SAIGIntelligence
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ class SAIGAssistant:
             logger.info("SAIG Assistant initialized with Anthropic API")
         
         self.gmail_service = GmailService()
+        self.intelligence = SAIGIntelligence()  # Initialize intelligence module
         self.api_url = "https://api.anthropic.com/v1/messages"
         self.http_client = httpx.AsyncClient(timeout=30.0)
         # Use Claude 3.5 Haiku for faster responses
@@ -210,7 +212,8 @@ Return only the intent name, nothing else."""
             valid_intents = ['search_emails', 'compose_email', 'reply_email', 'mark_read', 'mark_unread', 
                            'summarize', 'create_action', 'list_actions', 'delete_email', 
                            'move_to_folder', 'create_folder', 'list_folders',
-                           'star_email', 'general_question', 'help']
+                           'star_email', 'general_question', 'help',
+                           'analyze_patterns', 'extract_actions', 'categorize_emails', 'show_insights']
             
             if intent not in valid_intents:
                 intent = 'general_question'
@@ -248,6 +251,14 @@ Return only the intent name, nothing else."""
             response, actions = await self._create_folder(db, user, message)
         elif intent == 'list_folders':
             response = await self._list_folders(user)
+        elif intent == 'analyze_patterns':
+            response = await self._analyze_patterns(db, user)
+        elif intent == 'extract_actions':
+            response, actions = await self._extract_actions_from_emails(db, user, message, context)
+        elif intent == 'categorize_emails':
+            response, actions = await self._categorize_emails(db, user)
+        elif intent == 'show_insights':
+            response = await self._show_insights(db, user)
         elif intent == 'help':
             response = self._get_help_message()
         else:
@@ -1162,5 +1173,242 @@ Return ONLY valid JSON, no additional text."""
 • Summarize long emails
 • Get email insights
 • Natural language commands
+• Analyze email patterns
+• Extract action items from emails
+• Categorize emails automatically
+• Show personalized insights
 
 Just tell me what you need help with!"""
+    
+    async def _analyze_patterns(self, db: Session, user: User) -> str:
+        """Analyze user's email patterns using intelligence module"""
+        try:
+            patterns = await self.intelligence.analyze_email_patterns(db, user)
+            
+            response = "📊 **Email Pattern Analysis**\n\n"
+            
+            # Frequent senders
+            if patterns['frequent_senders']:
+                response += "**Most frequent contacts:**\n"
+                for sender in patterns['frequent_senders'][:5]:
+                    response += f"• {sender['name'] or sender['email']} ({sender['count']} emails)\n"
+                response += "\n"
+            
+            # Email categories
+            if patterns['email_categories']:
+                response += "**Email breakdown:**\n"
+                for category, count in patterns['email_categories'].items():
+                    response += f"• {category.capitalize()}: {count} emails\n"
+                response += "\n"
+            
+            # Peak hours
+            if patterns['peak_hours']:
+                response += f"**Peak email times:** {', '.join([f'{h}:00' for h in patterns['peak_hours']])}\n\n"
+            
+            # Unread buildup
+            if patterns['unread_buildup'] > 0:
+                response += f"⚠️ **Unread emails:** {patterns['unread_buildup']}\n\n"
+            
+            # Proactive suggestions
+            if patterns['suggested_actions']:
+                response += "**Recommendations:**\n"
+                for suggestion in patterns['suggested_actions']:
+                    priority_emoji = "🔴" if suggestion['priority'] == 'high' else "🟡" if suggestion['priority'] == 'medium' else "🟢"
+                    response += f"{priority_emoji} {suggestion['message']}\n"
+            
+            return response
+        except Exception as e:
+            logger.error(f"Error analyzing patterns: {e}")
+            return "I encountered an error analyzing your email patterns. Please try again."
+    
+    async def _extract_actions_from_emails(self, db: Session, user: User, message: str, context: Dict[str, Any]) -> tuple:
+        """Extract action items from emails using intelligence module"""
+        try:
+            actions = []
+            
+            # Check if specific email is selected
+            if context.get('selected_email'):
+                email = db.query(Email).filter(
+                    Email.id == context['selected_email']['id'],
+                    Email.user_id == user.id
+                ).first()
+                
+                if email:
+                    content = email.body_text or email.snippet or ""
+                    action_items = await self.intelligence.extract_action_items(content, email.subject or "")
+                    
+                    if action_items:
+                        response = f"📝 **Action items extracted from email:**\n\n"
+                        for item in action_items:
+                            priority_emoji = "🔴" if item['priority'] == 'high' else "🟡" if item['priority'] == 'medium' else "🟢"
+                            response += f"{priority_emoji} **{item['text']}**\n"
+                            if item.get('deadline'):
+                                response += f"   📅 Due: {item['deadline'].strftime('%B %d, %Y')}\n"
+                            response += f"   Confidence: {item['confidence']*100:.0f}%\n\n"
+                        
+                        actions.append(f"Extracted {len(action_items)} action items")
+                        
+                        # Ask if user wants to save them
+                        response += "\n💡 Would you like me to save these as action items in your task list?"
+                    else:
+                        response = "No clear action items found in this email."
+                else:
+                    response = "Could not find the selected email."
+            else:
+                # Extract from recent emails
+                recent_emails = context.get('recent_emails', [])[:5]
+                all_actions = []
+                
+                for email_data in recent_emails:
+                    email = db.query(Email).filter(
+                        Email.id == email_data['id'],
+                        Email.user_id == user.id
+                    ).first()
+                    
+                    if email:
+                        content = email.body_text or email.snippet or ""
+                        items = await self.intelligence.extract_action_items(content, email.subject or "")
+                        for item in items:
+                            item['email_subject'] = email.subject
+                            all_actions.append(item)
+                
+                if all_actions:
+                    response = f"📝 **Action items found in recent emails:**\n\n"
+                    for item in all_actions[:10]:  # Limit to 10
+                        priority_emoji = "🔴" if item['priority'] == 'high' else "🟡" if item['priority'] == 'medium' else "🟢"
+                        response += f"{priority_emoji} **{item['text']}**\n"
+                        response += f"   📧 From: {item['email_subject']}\n"
+                        if item.get('deadline'):
+                            response += f"   📅 Due: {item['deadline'].strftime('%B %d, %Y')}\n"
+                        response += "\n"
+                    
+                    actions.append(f"Found {len(all_actions)} action items")
+                else:
+                    response = "No action items found in recent emails."
+            
+            return response, actions
+            
+        except Exception as e:
+            logger.error(f"Error extracting actions: {e}")
+            return "I encountered an error extracting action items.", []
+    
+    async def _categorize_emails(self, db: Session, user: User) -> tuple:
+        """Categorize uncategorized emails"""
+        try:
+            # Get uncategorized emails
+            emails = db.query(Email).filter(
+                Email.user_id == user.id,
+                Email.deleted_at.is_(None)
+            ).limit(50).all()
+            
+            categorized_count = 0
+            categories_applied = {}
+            
+            for email in emails:
+                # Check if already categorized
+                if email.labels and any(label.startswith("CATEGORY/") for label in email.labels):
+                    continue
+                
+                # Detect category
+                category = await self.intelligence.detect_email_category(email)
+                
+                # Update email
+                if not email.labels:
+                    email.labels = []
+                email.labels.append(f"CATEGORY/{category.upper()}")
+                
+                categorized_count += 1
+                categories_applied[category] = categories_applied.get(category, 0) + 1
+                
+                if categorized_count >= 20:  # Limit per request
+                    break
+            
+            db.commit()
+            
+            if categorized_count > 0:
+                response = f"✅ **Categorized {categorized_count} emails:**\n\n"
+                for category, count in categories_applied.items():
+                    response += f"• {category.capitalize()}: {count} emails\n"
+                
+                actions = [f"Categorized {categorized_count} emails"]
+            else:
+                response = "All emails are already categorized!"
+                actions = []
+            
+            return response, actions
+            
+        except Exception as e:
+            logger.error(f"Error categorizing emails: {e}")
+            return "I encountered an error categorizing emails.", []
+    
+    async def _show_insights(self, db: Session, user: User) -> str:
+        """Show email insights and analytics"""
+        try:
+            from datetime import timedelta
+            from sqlalchemy import func
+            
+            # Get patterns
+            patterns = await self.intelligence.analyze_email_patterns(db, user)
+            
+            # Get statistics
+            total_emails = db.query(Email).filter(
+                Email.user_id == user.id,
+                Email.deleted_at.is_(None)
+            ).count()
+            
+            unread_emails = db.query(Email).filter(
+                Email.user_id == user.id,
+                Email.is_read == False,
+                Email.deleted_at.is_(None)
+            ).count()
+            
+            starred_emails = db.query(Email).filter(
+                Email.user_id == user.id,
+                Email.is_starred == True,
+                Email.deleted_at.is_(None)
+            ).count()
+            
+            # Recent activity
+            recent_date = datetime.utcnow() - timedelta(days=7)
+            recent_received = db.query(Email).filter(
+                Email.user_id == user.id,
+                Email.received_at >= recent_date,
+                Email.deleted_at.is_(None)
+            ).count()
+            
+            response = "📊 **Email Insights Dashboard**\n\n"
+            
+            # Statistics
+            response += "**📈 Statistics:**\n"
+            response += f"• Total emails: {total_emails}\n"
+            response += f"• Unread: {unread_emails} ({(unread_emails/total_emails*100):.1f}% if total_emails > 0 else 0})\n"
+            response += f"• Starred: {starred_emails}\n"
+            response += f"• Last 7 days: {recent_received} emails\n\n"
+            
+            # Top contacts
+            if patterns['frequent_senders']:
+                response += "**👥 Top Contacts:**\n"
+                for sender in patterns['frequent_senders'][:3]:
+                    response += f"• {sender['name'] or sender['email']} ({sender['count']} emails)\n"
+                response += "\n"
+            
+            # Email types
+            if patterns['email_categories']:
+                response += "**📧 Email Types:**\n"
+                total_categorized = sum(patterns['email_categories'].values())
+                for category, count in sorted(patterns['email_categories'].items(), key=lambda x: x[1], reverse=True)[:5]:
+                    percentage = (count/total_categorized*100) if total_categorized > 0 else 0
+                    response += f"• {category.capitalize()}: {count} ({percentage:.1f}%)\n"
+                response += "\n"
+            
+            # Recommendations
+            if patterns['suggested_actions']:
+                response += "**💡 Recommendations:**\n"
+                for suggestion in patterns['suggested_actions'][:3]:
+                    response += f"• {suggestion['message']}\n"
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error showing insights: {e}")
+            return "I encountered an error generating insights. Please try again."
