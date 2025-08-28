@@ -187,6 +187,9 @@ Available intents:
 - create_action: User wants to create an action item
 - list_actions: User wants to see action items
 - delete_email: User wants to delete/trash emails
+- move_to_folder: User wants to move emails to a folder/label
+- create_folder: User wants to create a new folder/label
+- list_folders: User wants to see available folders/labels
 - star_email: User wants to star/favorite emails
 - general_question: General question about emails or the system
 - help: User needs help or instructions
@@ -205,6 +208,7 @@ Return only the intent name, nothing else."""
             # Validate intent
             valid_intents = ['search_emails', 'compose_email', 'reply_email', 'mark_read', 'mark_unread', 
                            'summarize', 'create_action', 'list_actions', 'delete_email', 
+                           'move_to_folder', 'create_folder', 'list_folders',
                            'star_email', 'general_question', 'help']
             
             if intent not in valid_intents:
@@ -235,6 +239,14 @@ Return only the intent name, nothing else."""
             response, actions = await self._create_action_item(db, user, message, context)
         elif intent == 'list_actions':
             response = await self._list_action_items(db, user)
+        elif intent == 'delete_email':
+            response, actions = await self._delete_email(db, user, message, context)
+        elif intent == 'move_to_folder':
+            response, actions = await self._move_to_folder(db, user, message, context)
+        elif intent == 'create_folder':
+            response, actions = await self._create_folder(db, user, message)
+        elif intent == 'list_folders':
+            response = await self._list_folders(user)
         elif intent == 'help':
             response = self._get_help_message()
         else:
@@ -378,6 +390,113 @@ Return as JSON with keys: title, description, priority (high/medium/low), due_da
             response += "\n"
         
         return response
+    
+    async def _delete_email(self, db: Session, user: User, message: str, 
+                           context: Dict[str, Any]) -> tuple:
+        """Move email to trash"""
+        if not context.get('selected_email'):
+            return "Please select an email first, then ask me to delete it.", []
+        
+        selected_email = context['selected_email']
+        
+        # Get the email from database
+        email = db.query(Email).filter(
+            Email.id == selected_email['id'],
+            Email.user_id == user.id
+        ).first()
+        
+        if not email:
+            return "Could not find the selected email.", []
+        
+        # Move to trash in Gmail
+        if self.gmail_service.move_to_trash(user, email.gmail_id):
+            # Mark as deleted in database
+            email.deleted_at = datetime.utcnow()
+            db.commit()
+            return f"Moved '{email.subject}' to trash.", ["email_deleted"]
+        else:
+            return "Failed to move email to trash. Please try again.", []
+    
+    async def _move_to_folder(self, db: Session, user: User, message: str, 
+                             context: Dict[str, Any]) -> tuple:
+        """Move email to a specific folder/label"""
+        if not context.get('selected_email'):
+            return "Please select an email first, then ask me to move it to a folder.", []
+        
+        # Extract folder name from message
+        prompt = f"""Extract the folder/label name from this message: "{message}"
+Return only the folder name, nothing else. Common folders are: Work, Personal, Important, Follow-up, Archive, Projects, etc."""
+        
+        try:
+            folder_name = await self._call_anthropic(prompt, max_tokens=50, temperature=0.3)
+            folder_name = folder_name.strip()
+            
+            if not folder_name or folder_name.lower() in ['none', 'null', '']:
+                return "Please specify which folder you'd like to move the email to.", []
+            
+            selected_email = context['selected_email']
+            
+            # Get the email from database
+            email = db.query(Email).filter(
+                Email.id == selected_email['id'],
+                Email.user_id == user.id
+            ).first()
+            
+            if not email:
+                return "Could not find the selected email.", []
+            
+            # Move to folder in Gmail
+            if self.gmail_service.move_to_label(user, email.gmail_id, folder_name):
+                return f"Moved '{email.subject}' to '{folder_name}' folder.", ["email_moved"]
+            else:
+                return f"Failed to move email to '{folder_name}'. Please try again.", []
+                
+        except Exception as e:
+            logger.error(f"Error moving email to folder: {e}")
+            return "I had trouble moving the email. Please try again.", []
+    
+    async def _create_folder(self, db: Session, user: User, message: str) -> tuple:
+        """Create a new folder/label"""
+        # Extract folder name from message
+        prompt = f"""Extract the folder/label name to create from this message: "{message}"
+Return only the folder name, nothing else."""
+        
+        try:
+            folder_name = await self._call_anthropic(prompt, max_tokens=50, temperature=0.3)
+            folder_name = folder_name.strip()
+            
+            if not folder_name or folder_name.lower() in ['none', 'null', '']:
+                return "Please specify a name for the new folder.", []
+            
+            # Create folder in Gmail
+            label_id = self.gmail_service.create_label(user, folder_name)
+            if label_id:
+                return f"Created new folder '{folder_name}'. You can now move emails to this folder.", ["folder_created"]
+            else:
+                return f"Failed to create folder '{folder_name}'. It may already exist.", []
+                
+        except Exception as e:
+            logger.error(f"Error creating folder: {e}")
+            return "I had trouble creating the folder. Please try again.", []
+    
+    async def _list_folders(self, user: User) -> str:
+        """List all available folders/labels"""
+        try:
+            labels = self.gmail_service.list_labels(user)
+            
+            if not labels:
+                return "You don't have any custom folders yet. You can ask me to create one!"
+            
+            response = f"You have {len(labels)} custom folder(s):\n\n"
+            for label in labels:
+                response += f"• {label['name']}\n"
+            
+            response += "\nYou can move emails to any of these folders or create new ones."
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error listing folders: {e}")
+            return "I had trouble fetching your folders. Please try again."
     
     async def _generate_response(self, message: str, context: Dict[str, Any]) -> str:
         prompt = f"""You are SAIG, a helpful email assistant. Respond to this message naturally and helpfully.
@@ -791,7 +910,17 @@ Return ONLY valid JSON, no additional text."""
 • Mark emails as read/unread
 • Star or unstar emails
 • Move emails to trash
+• Move emails to folders
+• Create new folders/labels
+• List available folders
 • Compose and send new emails
+• Reply to emails intelligently
+
+📁 **Folder Organization:**
+• "Create a folder called Work"
+• "Move this email to Personal folder"
+• "Show me my folders"
+• "Delete this email" (moves to trash)
 
 📝 **Action Items:**
 • Create action items from emails

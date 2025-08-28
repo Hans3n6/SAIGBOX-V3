@@ -460,6 +460,84 @@ class GmailService:
             logger.error(f"Error restoring email from trash: {e}")
             return False
     
+    def create_label(self, user: User, label_name: str) -> Optional[str]:
+        """Create a new Gmail label/folder"""
+        try:
+            service = self.get_service(user)
+            label_object = {
+                'name': label_name,
+                'labelListVisibility': 'labelShow',
+                'messageListVisibility': 'show'
+            }
+            created_label = service.users().labels().create(
+                userId='me',
+                body=label_object
+            ).execute()
+            logger.info(f"Created label: {label_name} with ID: {created_label['id']}")
+            return created_label['id']
+        except Exception as e:
+            if 'already exists' in str(e):
+                # Label already exists, get its ID
+                try:
+                    labels = service.users().labels().list(userId='me').execute()
+                    for label in labels.get('labels', []):
+                        if label['name'] == label_name:
+                            return label['id']
+                except:
+                    pass
+            logger.error(f"Error creating label: {e}")
+            return None
+    
+    def move_to_label(self, user: User, email_id: str, label_name: str) -> bool:
+        """Move email to a specific label/folder"""
+        try:
+            service = self.get_service(user)
+            
+            # First ensure the label exists
+            label_id = self.create_label(user, label_name)
+            if not label_id:
+                logger.error(f"Could not create or find label: {label_name}")
+                return False
+            
+            # Add label to email
+            service.users().messages().modify(
+                userId='me',
+                id=email_id,
+                body={'addLabelIds': [label_id]}
+            ).execute()
+            
+            logger.info(f"Moved email {email_id} to label {label_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Error moving email to label: {e}")
+            return False
+    
+    def list_labels(self, user: User) -> List[Dict[str, str]]:
+        """List all labels/folders for a user"""
+        try:
+            service = self.get_service(user)
+            results = service.users().labels().list(userId='me').execute()
+            labels = results.get('labels', [])
+            
+            # Filter out system labels and return user labels
+            user_labels = []
+            system_labels = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'UNREAD', 
+                           'STARRED', 'IMPORTANT', 'CHAT', 'CATEGORY_PERSONAL',
+                           'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES',
+                           'CATEGORY_FORUMS']
+            
+            for label in labels:
+                if label['name'] not in system_labels and not label['name'].startswith('CATEGORY_'):
+                    user_labels.append({
+                        'id': label['id'],
+                        'name': label['name']
+                    })
+            
+            return user_labels
+        except Exception as e:
+            logger.error(f"Error listing labels: {e}")
+            return []
+    
     def send_email(self, user: User, to: List[str], subject: str, body: str, 
                    cc: List[str] = None, bcc: List[str] = None, thread_id: str = None,
                    message_id: str = None) -> Dict[str, Any]:
