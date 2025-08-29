@@ -65,14 +65,16 @@ gmail_service = GmailService()
 # Background sync task
 async def sync_emails_background():
     """Background task to sync emails every 30 seconds"""
+    await asyncio.sleep(10)  # Initial delay before starting
     while True:
         try:
             logger.info("Starting email sync...")
             # This would be implemented with proper user session management
-            await asyncio.sleep(30)
         except Exception as e:
             logger.error(f"Sync error: {e}")
-            await asyncio.sleep(60)
+        
+        # Always wait between sync attempts
+        await asyncio.sleep(30)
 
 @app.on_event("startup")
 async def startup_event():
