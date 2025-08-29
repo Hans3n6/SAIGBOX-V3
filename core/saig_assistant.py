@@ -464,7 +464,6 @@ Return only the fields that are clearly mentioned."""
             
             # Handle time periods
             if criteria.get('time_period'):
-                from datetime import timedelta
                 now = datetime.utcnow()
                 time_period = criteria['time_period'].lower()
                 
@@ -630,7 +629,6 @@ Return only the fields that are clearly mentioned."""
             # Format date nicely
             date_str = ""
             if email.get('date'):
-                from datetime import datetime
                 if isinstance(email['date'], datetime):
                     date_str = email['date'].strftime('%b %d, %Y at %I:%M %p')
             
@@ -1517,7 +1515,6 @@ Just tell me what you need help with!"""
     async def _show_insights(self, db: Session, user: User) -> str:
         """Show email insights and analytics"""
         try:
-            from datetime import timedelta
             from sqlalchemy import func
             
             # Get patterns
