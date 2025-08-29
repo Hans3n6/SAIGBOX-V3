@@ -1,0 +1,40 @@
+[Unit]
+Description=SAIGBOX FastAPI Application
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/SAIGBOX-V3
+Environment="PATH=/home/ubuntu/SAIGBOX-V3/venv/bin"
+EnvironmentFile=/home/ubuntu/SAIGBOX-V3/.env
+
+# Pre-start cleanup
+ExecStartPre=/bin/bash -c 'pkill -f "uvicorn api.main:app" || true'
+ExecStartPre=/bin/sleep 2
+
+# Main service
+ExecStart=/home/ubuntu/SAIGBOX-V3/venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 1 --limit-concurrency 100
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+RestartPreventExitStatus=0
+
+# Resource limits
+MemoryLimit=512M
+CPUQuota=80%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=saigbox
+
+# Security
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
