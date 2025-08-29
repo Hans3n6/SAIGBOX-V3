@@ -517,12 +517,27 @@ Return only the fields that are clearly mentioned."""
         
         # Check if user is confirming a previous delete request
         if context.get('pending_delete'):
+            # Log the confirmation attempt
+            logger.info(f"Checking trash confirmation: '{message}'")
+            
             # Check for various confirmation messages
             confirmation_phrases = [
                 'yes', 'confirm', 'proceed', 'go ahead', 'sure', 'ok',
-                'move to trash', 'move all to trash', 'yes, move'
+                'move to trash', 'move all to trash', 'yes, move', 'yes move',
+                'move them', 'delete', 'trash them', 'yes, move all'
             ]
-            if any(phrase in message.lower() for phrase in confirmation_phrases):
+            message_lower = message.lower().strip().replace(',', '').replace('.', '')
+            
+            # Check if message contains any confirmation phrase
+            is_confirmed = any(phrase in message_lower for phrase in confirmation_phrases)
+            
+            # Also check for exact matches
+            if not is_confirmed:
+                is_confirmed = message_lower in confirmation_phrases
+            
+            logger.info(f"Confirmation result: {is_confirmed} for message: '{message_lower}'")
+            
+            if is_confirmed:
                 # Execute the pending delete
                 pending = context['pending_delete']
                 success_count = 0
@@ -656,7 +671,7 @@ Return only the fields that are clearly mentioned."""
                 if isinstance(email['date'], datetime):
                     date_str = email['date'].strftime('%b %d, %Y at %I:%M %p')
             
-            confirm_msg = f"""<div class="rounded-xl bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 border border-amber-200 p-6 shadow-xl">
+            confirm_msg = f"""<div class="rounded-xl bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 border border-amber-200 p-6 shadow-xl" style="max-width: 900px; margin: 0 auto;">
   <div class="flex items-start space-x-4">
     <div class="flex-shrink-0">
       <div class="p-3 bg-gradient-to-br from-amber-100 to-orange-100 rounded-full shadow-md">
@@ -748,7 +763,7 @@ Return only the fields that are clearly mentioned."""
         </div>
       </div>"""
             
-            confirm_msg = f"""<div class="rounded-xl bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 border border-amber-200 p-6 shadow-xl">
+            confirm_msg = f"""<div class="rounded-xl bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 border border-amber-200 p-6 shadow-xl" style="max-width: 900px; margin: 0 auto;">
   <div class="flex items-start space-x-4">
     <div class="flex-shrink-0">
       <div class="p-3 bg-gradient-to-br from-amber-100 to-orange-100 rounded-full shadow-md">
@@ -765,7 +780,7 @@ Return only the fields that are clearly mentioned."""
         <p>The following emails will be moved to your trash folder:</p>
       </div>
       
-      <div class="mt-4 rounded-lg bg-white shadow-inner border border-gray-200" style="max-height: 320px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #CBD5E0 #F7FAFC;">
+      <div class="mt-4 rounded-lg bg-white shadow-inner border border-gray-200" style="max-height: 450px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #CBD5E0 #F7FAFC;">
         {email_items_html}
       </div>
       
