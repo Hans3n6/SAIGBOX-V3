@@ -537,6 +537,10 @@ Return only the fields that are clearly mentioned."""
                 
                 db.commit()
                 
+                # Clear the pending delete from context after processing
+                if 'pending_delete' in context:
+                    del context['pending_delete']
+                
                 if success_count > 0:
                     # Create a success message with better formatting
                     if success_count == 1:
@@ -572,6 +576,9 @@ Return only the fields that are clearly mentioned."""
 </div>"""
                     return result, ["emails_moved_to_trash"]
                 else:
+                    # Clear pending delete from context even on failure
+                    if 'pending_delete' in context:
+                        del context['pending_delete']
                     return """<div class="rounded-lg border border-red-200 bg-red-50 p-3">
   <div class="flex">
     <div class="flex-shrink-0">
@@ -587,6 +594,9 @@ Return only the fields that are clearly mentioned."""
   </div>
 </div>""", []
             else:
+                # Clear pending delete from context on cancel
+                if 'pending_delete' in context:
+                    del context['pending_delete']
                 return """<div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
   <div class="flex">
     <div class="flex-shrink-0">
@@ -698,7 +708,8 @@ Return only the fields that are clearly mentioned."""
         else:
             # Multiple emails - create a more user-friendly list
             email_items_html = ""
-            for i, email in enumerate(emails_to_delete[:5]):  # Show first 5
+            # Show all emails in scrollable list
+            for i, email in enumerate(emails_to_delete):
                 email_items_html += f"""
       <div class="flex items-start space-x-3 py-2 {'border-t border-amber-100' if i > 0 else ''}">
         <div class="flex-shrink-0 mt-0.5">
@@ -717,14 +728,6 @@ Return only the fields that are clearly mentioned."""
         </div>
       </div>"""
             
-            if len(emails_to_delete) > 5:
-                email_items_html += f"""
-      <div class="py-2 border-t border-amber-100">
-        <p class="text-sm text-gray-500 italic">
-          ... and {len(emails_to_delete) - 5} more email{'s' if len(emails_to_delete) - 5 > 1 else ''}
-        </p>
-      </div>"""
-            
             confirm_msg = f"""<div class="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm">
   <div class="flex items-start space-x-3">
     <div class="flex-shrink-0">
@@ -740,7 +743,7 @@ Return only the fields that are clearly mentioned."""
         <p>The following emails will be moved to your trash folder:</p>
       </div>
       
-      <div class="mt-3 rounded-md bg-white p-3 shadow-sm border border-amber-100 max-h-60 overflow-y-auto">
+      <div class="mt-3 rounded-md bg-white p-3 shadow-sm border border-amber-100" style="max-height: 300px; overflow-y: auto;">
         {email_items_html}
       </div>
       
