@@ -161,44 +161,5 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return response
 
 
-class CORSMiddleware(BaseHTTPMiddleware):
-    """Enhanced CORS middleware with security"""
-    
-    async def dispatch(self, request: Request, call_next):
-        # Handle preflight requests
-        if request.method == "OPTIONS":
-            return self._preflight_response(request)
-        
-        response = await call_next(request)
-        
-        # Add CORS headers
-        origin = request.headers.get("origin")
-        if origin and self._is_allowed_origin(origin):
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-        
-        return response
-    
-    def _is_allowed_origin(self, origin: str) -> bool:
-        """Check if origin is allowed"""
-        allowed_origins = [
-            "http://localhost:3000",
-            "http://localhost:8000",
-            "https://saigbox.com"
-        ]
-        return origin in allowed_origins or origin.startswith("http://localhost:")
-    
-    def _preflight_response(self, request: Request):
-        """Handle preflight OPTIONS requests"""
-        from fastapi.responses import Response
-        
-        headers = {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
-            "Access-Control-Max-Age": "86400"
-        }
-        
-        return Response(status_code=200, headers=headers)
+# CORSMiddleware is now handled by FastAPI's built-in middleware in main.py
+# This custom implementation has been deprecated to avoid duplicate headers
