@@ -591,13 +591,21 @@ Return only the fields that are clearly mentioned."""
                     logger.error("No emails in pending_delete list!")
                     return "Error: No emails to delete. Please select emails first.", ["error"]
                 
-                for email_data in pending['emails']:
+                for i, email_data in enumerate(pending['emails']):
+                    logger.info(f"=== Processing email {i+1}/{len(pending['emails'])} ===")
+                    logger.info(f"Looking for email with ID: {email_data['id']}")
+                    logger.info(f"Email data from pending: {json.dumps(email_data, default=str)}")
+                    
                     email = db.query(Email).filter(
                         Email.id == email_data['id'],
                         Email.user_id == user.id
                     ).first()
                     
                     if email:
+                        # VALIDATION: Ensure this email matches what was shown in preview
+                        if email.subject != email_data.get('subject'):
+                            logger.warning(f"⚠️ Subject mismatch! DB: '{email.subject}' vs Preview: '{email_data.get('subject')}'")
+                        
                         logger.info(f"Moving email {email.id} to trash (gmail_id: {email.gmail_id})")
                         logger.info(f"Email subject: {email.subject}")
                         logger.info(f"Email sender: {email.sender}")
@@ -633,7 +641,8 @@ Return only the fields that are clearly mentioned."""
                             })
                     else:
                         failed_count += 1
-                        logger.error(f"Email not found in database: {email_data['id']}")
+                        logger.error(f"❌ Email not found in database: {email_data['id']}")
+                        logger.error(f"Was looking for: {json.dumps(email_data, default=str)}")
                 
                 db.commit()
                 logger.info(f"Database commit completed. Success: {success_count}, Failed: {failed_count}")
@@ -715,7 +724,11 @@ Return only the fields that are clearly mentioned."""
 </div>""", []
         
         # First try to find emails based on the message
+        logger.info(f"=== Finding emails to delete based on: '{message}' ===")
         emails_to_delete = await self._find_emails_by_description(db, user, message)
+        logger.info(f"Found {len(emails_to_delete) if emails_to_delete else 0} emails to delete")
+        if emails_to_delete:
+            logger.info(f"First 3 emails to delete: {json.dumps(emails_to_delete[:3], default=str)}")
         
         # If no emails found by description and there's a selected email, use that
         if not emails_to_delete and context.get('selected_email'):
@@ -782,7 +795,7 @@ Return only the fields that are clearly mentioned."""
 </div>"""
         
         # Store pending delete in context for confirmation
-        # This would need to be handled by the frontend to maintain state
+        # CRITICAL: These are the EXACT emails that will be deleted
         context['pending_delete'] = {
             'emails': emails_to_delete,
             'timestamp': datetime.utcnow().isoformat()
@@ -790,7 +803,9 @@ Return only the fields that are clearly mentioned."""
         
         logger.info(f"=== Setting pending_delete in context ===")
         logger.info(f"Number of emails to delete: {len(emails_to_delete)}")
-        logger.info(f"Context after setting pending_delete: {json.dumps(context, default=str)}")
+        logger.info(f"Email IDs to be deleted: {[e['id'] for e in emails_to_delete][:10]}...")
+        logger.info(f"Email subjects to be deleted: {[e['subject'] for e in emails_to_delete][:5]}...")
+        logger.info(f"Context after setting pending_delete: {json.dumps(context, default=str)[:500]}...")
         
         return confirm_msg, ["confirmation_required"]
     
