@@ -578,7 +578,7 @@ NEVER include subject or content when only searching for sender."""
         """
         
         logger.info(f"=== _delete_email called (SINGLE TRASH PATHWAY) ===")
-        logger.info(f"Message: {message}")
+        logger.info(f"Message: {message!r}")
         logger.info(f"Context has pending_delete: {'pending_delete' in context}")
         if 'pending_delete' in context:
             logger.info(f"Pending delete content: {json.dumps(context['pending_delete'], default=str)}")
@@ -586,7 +586,7 @@ NEVER include subject or content when only searching for sender."""
         # Check if user is confirming a previous delete request
         if context.get('pending_delete'):
             # Log the confirmation attempt
-            logger.info(f"Processing trash confirmation: '{message}'")
+            logger.info(f"Processing trash confirmation: {message!r}")
             logger.info(f"Number of emails in pending_delete: {len(context['pending_delete'].get('emails', []))}")
             
             # Check for various confirmation messages
@@ -614,7 +614,7 @@ NEVER include subject or content when only searching for sender."""
                 
                 logger.info(f"=== EXECUTING TRASH ACTION (VALIDATED) ====")
                 logger.info(f"Processing trash request for {len(pending['emails'])} emails")
-                logger.info(f"User confirmed with message: '{message}'")
+                logger.info(f"User confirmed with message: {message!r}")
                 
                 # Validate email list
                 if not pending.get('emails') or len(pending['emails']) == 0:
@@ -735,7 +735,7 @@ NEVER include subject or content when only searching for sender."""
 </div>""", []
             else:
                 # Clear pending delete from context on cancel
-                logger.info(f"User cancelled trash action with message: '{message}'")
+                logger.info(f"User cancelled trash action with message: {message!r}")
                 if 'pending_delete' in context:
                     del context['pending_delete']
                 return """<div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -754,7 +754,7 @@ NEVER include subject or content when only searching for sender."""
 </div>""", []
         
         # First try to find emails based on the message
-        logger.info(f"=== Finding emails to delete based on: '{message}' ===")
+        logger.info(f"=== Finding emails to delete based on: {message!r} ===")
         emails_to_delete = await self._find_emails_by_description(db, user, message)
         logger.info(f"Found {len(emails_to_delete) if emails_to_delete else 0} emails to delete")
         if emails_to_delete:
