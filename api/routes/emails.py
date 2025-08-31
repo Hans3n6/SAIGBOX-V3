@@ -280,10 +280,24 @@ async def delete_email(
     if email.gmail_id:
         success = gmail_service.move_to_trash(current_user, email.gmail_id)
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to trash email in Gmail")
+            # Log the error but don't fail completely
+            logger.error(f"Failed to move email {email.gmail_id} to Gmail trash, will mark as deleted locally")
     
-    # Soft delete in database
+    # Soft delete in database and update labels
     email.deleted_at = datetime.utcnow()
+    
+    # Update labels to reflect trash status
+    if not email.labels:
+        email.labels = []
+    
+    # Add TRASH label
+    if 'TRASH' not in email.labels:
+        email.labels.append('TRASH')
+    
+    # Remove INBOX label if present
+    if 'INBOX' in email.labels:
+        email.labels.remove('INBOX')
+    
     db.commit()
     
     return {"success": True, "message": "Email moved to trash"}
