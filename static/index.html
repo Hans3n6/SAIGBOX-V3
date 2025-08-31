@@ -2412,8 +2412,11 @@
             moveSelectedToTrash: function() {
                 console.log("SAIG Action: moveSelectedToTrash called");
                 
-                // Get all selected email IDs
-                const checkboxes = document.querySelectorAll(".trash-email-checkbox:checked");
+                // Get all selected email IDs - try both class names
+                let checkboxes = document.querySelectorAll(".trash-email-checkbox:checked");
+                if (checkboxes.length === 0) {
+                    checkboxes = document.querySelectorAll(".trash-checkbox:checked");
+                }
                 const selectedEmails = Array.from(checkboxes).map(cb => {
                     const emailId = cb.getAttribute("data-email-id");
                     // Try to find email in window.trashEmailList if it exists
@@ -2463,11 +2466,14 @@
                                 </button>
                             </div>
                             <div class="text-sm text-gray-600 mb-4">
-                                <div>From: ${email.sender_name || email.sender}</div>
+                                <div class="font-medium">From: ${email.sender_name || email.sender || 'Unknown'}</div>
                                 <div>Date: ${email.received_at || email.date || 'Unknown'}</div>
                             </div>
-                            <div class="text-sm text-gray-700">
-                                <p>Loading email content...</p>
+                            <div class="border-t pt-4">
+                                <div class="text-sm text-gray-700">
+                                    ${email.snippet ? `<p class="mb-2">${email.snippet}</p>` : ''}
+                                    <p class="text-gray-500 italic">Loading full email content...</p>
+                                </div>
                             </div>
                             <div class="mt-6 flex justify-end">
                                 <button onclick="this.closest('.fixed').remove()" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Close</button>
@@ -2496,17 +2502,23 @@
             
             selectAllTrashEmails: function(select) {
                 console.log("SAIG Action: selectAllTrashEmails", select);
-                const checkboxes = document.querySelectorAll('.trash-email-checkbox');
-                checkboxes.forEach(cb => cb.checked = select);
-                // Trigger count update if function exists
-                if (window.updateTrashCount) {
-                    window.updateTrashCount();
+                // Try both class names for compatibility
+                let checkboxes = document.querySelectorAll('.trash-email-checkbox');
+                if (checkboxes.length === 0) {
+                    checkboxes = document.querySelectorAll('.trash-checkbox');
                 }
+                checkboxes.forEach(cb => cb.checked = select);
+                // Trigger count update
+                window.saigActions.updateTrashCount();
             },
             
             updateTrashCount: function() {
                 console.log("SAIG Action: updateTrashCount");
-                const checkboxes = document.querySelectorAll('.trash-email-checkbox');
+                // Try both class names for compatibility
+                let checkboxes = document.querySelectorAll('.trash-email-checkbox');
+                if (checkboxes.length === 0) {
+                    checkboxes = document.querySelectorAll('.trash-checkbox');
+                }
                 const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
                 const totalCount = checkboxes.length;
                 

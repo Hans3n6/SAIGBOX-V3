@@ -181,30 +181,35 @@ class SimpleEmailHandler:
         email_items = []
         for i, email in enumerate(emails):
             email_items.append(f"""
-    <div class="flex items-start gap-2 p-2 bg-white rounded border mb-1">
+    <div class="flex items-start gap-2 p-2 bg-white rounded border mb-1 hover:bg-gray-50">
       <input type="checkbox" 
              id="trash-{i}" 
              data-email-id="{email.id}" 
              checked 
              class="trash-checkbox mt-1"
              onchange="window.saigActions.updateTrashCount()">
-      <label for="trash-{i}" class="flex-1 cursor-pointer">
+      <div class="flex-1 cursor-pointer" onclick="window.saigActions.viewEmailFromPreview('{email.id}')">
         <div class="font-medium text-sm">{email.subject or 'No Subject'}</div>
         <div class="text-xs text-gray-600">From: {email.sender_name or email.sender}</div>
         <div class="text-xs text-gray-500">{email.received_at.strftime('%Y-%m-%d %H:%M')}</div>
-      </label>
+      </div>
     </div>""")
         
         return f"""<div class="p-4 border border-amber-300 rounded-lg bg-amber-50">
   <div class="text-lg font-semibold mb-3">🗑️ Move {len(emails)} Emails to Trash?</div>
   <div class="text-sm text-gray-600 mb-2">
-    <span id="trash-count">{len(emails)}</span> of {len(emails)} selected
+    <span id="trash-count-display">{len(emails)} of {len(emails)}</span> emails selected
+  </div>
+  <div class="mb-2 flex gap-2">
+    <button onclick="window.saigActions.selectAllTrashEmails(true)" class="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50">Select All</button>
+    <button onclick="window.saigActions.selectAllTrashEmails(false)" class="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50">Deselect All</button>
   </div>
   <div class="max-h-64 overflow-y-auto border rounded p-2 bg-gray-50 mb-3">
     {''.join(email_items)}
   </div>
   <div class="text-sm text-amber-700 mb-3">
     ⚠️ Selected emails will be moved to trash (can be restored within 30 days)
+    <div class="text-xs text-gray-500 mt-1">💡 Click on an email to view its content</div>
   </div>
   <div class="flex gap-2 justify-end">
     <button onclick="sendMessage('cancel')" class="px-4 py-2 border rounded">Cancel</button>
@@ -212,8 +217,8 @@ class SimpleEmailHandler:
   </div>
 </div>
 <script>
-// Store the email list for reference
-window.trashEmailList = {json.dumps([{'id': str(e.id), 'subject': e.subject} for e in emails])};
+// Store the email list with more details for viewing
+window.trashEmailList = {json.dumps([{'id': str(e.id), 'subject': e.subject, 'sender': e.sender_name or e.sender, 'date': e.received_at.strftime('%Y-%m-%d %H:%M'), 'snippet': e.snippet[:200] if e.snippet else ''} for e in emails])};
 </script>"""
     
     def execute_deletion(self, db: Session, user: User, email_ids: List[str], gmail_service) -> Dict[str, Any]:
