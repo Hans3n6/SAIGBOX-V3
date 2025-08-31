@@ -975,7 +975,7 @@ NEVER include subject or content when only searching for sender."""
 // Track original email list
 window.trashEmailList = {json.dumps(emails_to_delete, default=str)};
 
-function updateTrashCount() {{
+window.updateTrashCount = function() {{
   const checkboxes = document.querySelectorAll('.trash-email-checkbox');
   const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
   const totalCount = checkboxes.length;
@@ -994,13 +994,13 @@ function updateTrashCount() {{
   }}
 }}
 
-function selectAllTrashEmails(select) {{
+window.selectAllTrashEmails = function(select) {{
   const checkboxes = document.querySelectorAll('.trash-email-checkbox');
   checkboxes.forEach(cb => cb.checked = select);
   updateTrashCount();
 }}
 
-function viewEmailFromPreview(emailId) {{
+window.viewEmailFromPreview = function(emailId) {{
   // Find the email in the trash list
   const email = window.trashEmailList.find(e => e.id === emailId);
   if (email) {{
@@ -1045,7 +1045,7 @@ function viewEmailFromPreview(emailId) {{
   }}
 }}
 
-function moveSelectedToTrash() {{
+window.moveSelectedToTrash = function() {{
   // Get all selected email IDs
   const checkboxes = document.querySelectorAll('.trash-email-checkbox:checked');
   const selectedEmails = Array.from(checkboxes).map(cb => {{
