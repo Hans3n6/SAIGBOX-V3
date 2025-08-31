@@ -641,6 +641,7 @@
         let currentView = 'inbox';
         let selectedEmailId = null;
         let emails = [];
+        let trashedEmails = []; // Store trashed emails
         let allLoadedEmails = []; // Store all loaded emails for the session
         let loadedPages = new Set(); // Track which pages have been loaded
         let currentPage = 0; // Start at 0, will be incremented before each load
@@ -2068,7 +2069,8 @@
                 
                 if (response.ok) {
                     const data = await response.json();
-                    renderTrash(data.emails || data || []);
+                    trashedEmails = data.emails || data || [];
+                    renderTrash(trashedEmails);
                 }
             } catch (error) {
                 console.error('Error loading trash:', error);
