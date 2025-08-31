@@ -42,7 +42,13 @@ app.add_middleware(AuthMiddleware)
 # CORS middleware - using FastAPI's built-in CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://saigbox.com", "https://api.saigbox.com", "http://localhost:3000", "http://localhost:8000"],
+    allow_origins=[
+        "https://saigbox.com",
+        "https://www.saigbox.com",  # Added www subdomain
+        "https://api.saigbox.com",
+        "http://localhost:3000",
+        "http://localhost:8000"
+    ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
