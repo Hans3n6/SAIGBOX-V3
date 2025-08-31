@@ -541,9 +541,13 @@ Return only the fields that are clearly mentioned."""
     
     async def _delete_email(self, db: Session, user: User, message: str, 
                            context: Dict[str, Any]) -> tuple:
-        """Move email to trash with natural language search and user-friendly confirmation"""
+        """Move email to trash - SINGLE PATHWAY for all trash operations
         
-        logger.info(f"=== _delete_email called ===")
+        This is the ONLY method that should handle email deletion/trash operations.
+        All trash requests must go through this method with proper context.
+        """
+        
+        logger.info(f"=== _delete_email called (SINGLE TRASH PATHWAY) ===")
         logger.info(f"Message: {message}")
         logger.info(f"Context has pending_delete: {'pending_delete' in context}")
         if 'pending_delete' in context:
@@ -578,9 +582,14 @@ Return only the fields that are clearly mentioned."""
                 success_count = 0
                 failed_count = 0
                 
-                logger.info(f"=== EXECUTING TRASH ACTION ====")
+                logger.info(f"=== EXECUTING TRASH ACTION (VALIDATED) ====")
                 logger.info(f"Processing trash request for {len(pending['emails'])} emails")
                 logger.info(f"User confirmed with message: '{message}'")
+                
+                # Validate email list
+                if not pending.get('emails') or len(pending['emails']) == 0:
+                    logger.error("No emails in pending_delete list!")
+                    return "Error: No emails to delete. Please select emails first.", ["error"]
                 
                 for email_data in pending['emails']:
                     email = db.query(Email).filter(
@@ -593,21 +602,35 @@ Return only the fields that are clearly mentioned."""
                         logger.info(f"Email subject: {email.subject}")
                         logger.info(f"Email sender: {email.sender}")
                         
-                        # Try to move to trash in Gmail
+                        # Try to move to trash in Gmail with comprehensive error handling
                         try:
+                            if not email.gmail_id:
+                                logger.error(f"Email {email.id} has no gmail_id!")
+                                failed_count += 1
+                                continue
+                                
                             gmail_result = self.gmail_service.move_to_trash(user, email.gmail_id)
-                            logger.info(f"Gmail move_to_trash result: {gmail_result}")
+                            logger.info(f"Gmail move_to_trash result for {email.gmail_id}: {gmail_result}")
                             
                             if gmail_result:
                                 email.deleted_at = datetime.utcnow()
+                                email.labels = ['TRASH']  # Update labels
                                 success_count += 1
-                                logger.info(f"Successfully moved email {email.id} to trash at {email.deleted_at}")
+                                logger.info(f"✅ Successfully moved email {email.id} to trash at {email.deleted_at}")
                             else:
                                 failed_count += 1
-                                logger.error(f"Gmail service returned False for email {email.id}")
+                                logger.error(f"❌ Gmail service returned False for email {email.id}")
                         except Exception as e:
                             failed_count += 1
-                            logger.error(f"Exception moving email {email.id} to trash: {e}")
+                            logger.error(f"❌ Exception moving email {email.id} to trash: {e}")
+                            # Store error for potential recovery
+                            if 'failed_emails' not in context:
+                                context['failed_emails'] = []
+                            context['failed_emails'].append({
+                                'id': email.id,
+                                'gmail_id': email.gmail_id,
+                                'error': str(e)
+                            })
                     else:
                         failed_count += 1
                         logger.error(f"Email not found in database: {email_data['id']}")
@@ -725,8 +748,8 @@ Return only the fields that are clearly mentioned."""
   </div>
   <div class="text-sm text-amber-700 mb-4">↩️ You can restore within 30 days</div>
   <div class="flex gap-3 justify-end">
-    <button onclick="sendMessage('Cancel')" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Cancel</button>
-    <button onclick="sendMessage('Yes, move to trash')" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move to Trash</button>
+    <button data-action="send-message" data-message="Cancel" onclick="sendMessage('Cancel')" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Cancel</button>
+    <button data-action="send-message" data-message="Yes, move to trash" onclick="sendMessage('Yes, move to trash')" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move to Trash</button>
   </div>
 </div>"""
         else:
@@ -753,8 +776,8 @@ Return only the fields that are clearly mentioned."""
     <div>↩️ You can restore them within 30 days</div>
   </div>
   <div class="flex gap-3 justify-end">
-    <button onclick="sendMessage('Cancel')" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Cancel</button>
-    <button onclick="sendMessage('Yes, move all to trash')" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move All to Trash</button>
+    <button data-action="send-message" data-message="Cancel" onclick="sendMessage('Cancel')" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Cancel</button>
+    <button data-action="send-message" data-message="Yes, move all to trash" onclick="sendMessage('Yes, move all to trash')" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move All to Trash</button>
   </div>
 </div>"""
         

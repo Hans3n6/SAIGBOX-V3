@@ -2160,19 +2160,20 @@
         }
         
         // Store SAIG context for maintaining state across messages
-        // Make it global so onclick handlers in innerHTML can access it
-        window.saigContext = {};
+        // Use closure to maintain context without global pollution
+        let saigContext = {};
         
-        window.sendMessage = async function(directMessage = null) {
+        // Single function to handle all SAIG interactions
+        const sendMessage = async function(directMessage = null) {
             console.log('=== sendMessage called ===');
             console.log('Direct message:', directMessage);
-            console.log('window.saigContext at start:', window.saigContext);
+            console.log('saigContext at start:', saigContext);
             
             const input = document.getElementById('chat-input');
             const message = directMessage || input.value.trim();
             
             console.log('Message to send:', message);
-            console.log('Current window.saigContext:', window.saigContext);
+            console.log('Current saigContext:', saigContext);
             
             if (!message) {
                 console.log('No message, returning');
@@ -2188,7 +2189,7 @@
             // Build context including any pending operations and selected email
             const selectedEmail = selectedEmailId ? emails.find(e => e.id === selectedEmailId) : null;
             const fullContext = {
-                ...window.saigContext,
+                ...saigContext,
                 ...(selectedEmail ? { 
                     selected_email: {
                         id: selectedEmail.id,
@@ -2229,9 +2230,9 @@
                     
                     // Update SAIG context if provided
                     if (result.context) {
-                        console.log('Updating window.saigContext with:', result.context);
-                        window.saigContext = result.context;
-                        console.log('window.saigContext after update:', window.saigContext);
+                        console.log('Updating saigContext with:', result.context);
+                        saigContext = result.context;
+                        console.log('saigContext after update:', saigContext);
                     } else {
                         console.log('No context in response');
                     }
@@ -2241,7 +2242,7 @@
                     // Check if the response indicates trash action was completed
                     if (result.actions_taken && result.actions_taken.includes('emails_moved_to_trash')) {
                         // Clear pending delete from context
-                        delete window.saigContext.pending_delete;
+                        delete saigContext.pending_delete;
                         // Close the email detail view if open
                         const detailContainer = document.getElementById('email-detail-container');
                         if (detailContainer) {
@@ -2263,6 +2264,41 @@
                 saigContext = {};
             }
         }
+        
+        // Make sendMessage available globally for the main chat input button
+        window.sendMessage = sendMessage;
+        
+        // Comprehensive trash operation handler with error recovery
+        const handleTrashOperation = (messageText) => {
+            console.log('=== Trash Operation Handler ===');
+            console.log('Message:', messageText);
+            console.log('Current context:', saigContext);
+            
+            // Validate context for trash operations
+            if (messageText === 'Yes, move all to trash' || messageText === 'Yes, move to trash') {
+                if (!saigContext.pending_delete) {
+                    console.error('No pending_delete in context!');
+                    addChatMessage('Error: Lost track of which emails to delete. Please try again.', 'assistant');
+                    return;
+                }
+                
+                const emailCount = saigContext.pending_delete.emails ? saigContext.pending_delete.emails.length : 0;
+                console.log(`Processing ${emailCount} emails for trash`);
+                
+                if (emailCount === 0) {
+                    console.error('No emails in pending_delete!');
+                    addChatMessage('Error: No emails selected for deletion. Please try again.', 'assistant');
+                    return;
+                }
+            }
+            
+            // Execute the trash operation
+            sendMessage(messageText).catch(error => {
+                console.error('Trash operation failed:', error);
+                addChatMessage('Failed to move emails to trash. Please try again.', 'assistant');
+                // Don't clear context on error - allow retry
+            });
+        };
         
         // SAIG Full View Functions
         async function sendSaigMessage() {
@@ -2364,24 +2400,40 @@
                 const content = message.includes('<div') || message.includes('<button') ? message : `<p class="text-sm">${message}</p>`;
                 messageEl.innerHTML = content;
                 
-                // Attach event listeners to any buttons using arrow functions
-                // This gives them access to the local scope and saigContext
+                // Replace onclick attributes with data attributes and attach event listeners
                 const buttons = messageEl.querySelectorAll('button[onclick]');
                 buttons.forEach(button => {
                     const onclickAttr = button.getAttribute('onclick');
-                    if (onclickAttr && onclickAttr.includes('sendMessage')) {
-                        // Extract the message parameter from onclick="sendMessage('...')"
-                        const match = onclickAttr.match(/sendMessage\(['"]([^'"]*)['"]\)/);
-                        if (match) {
-                            const messageParam = match[1];
-                            button.removeAttribute('onclick');
-                            // Use arrow function to preserve scope
-                            button.addEventListener('click', () => {
-                                console.log('Button clicked with message:', messageParam);
-                                console.log('Current context at click time:', window.saigContext);
-                                window.sendMessage(messageParam);
-                            });
+                    if (onclickAttr) {
+                        // Parse different types of onclick handlers
+                        if (onclickAttr.includes('sendMessage')) {
+                            const match = onclickAttr.match(/sendMessage\(['"]([^'"]*)['"]\)/);
+                            if (match) {
+                                button.setAttribute('data-action', 'send-message');
+                                button.setAttribute('data-message', match[1]);
+                            }
                         }
+                        // Remove the onclick attribute
+                        button.removeAttribute('onclick');
+                        
+                        // Attach event listener using arrow function for scope preservation
+                        button.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            const action = button.getAttribute('data-action');
+                            const messageText = button.getAttribute('data-message');
+                            
+                            if (action === 'send-message') {
+                                console.log('Lambda button click:', messageText);
+                                console.log('Context at click time:', saigContext);
+                                
+                                // Use specialized handler for trash operations
+                                if (messageText.toLowerCase().includes('trash') || messageText.toLowerCase() === 'cancel') {
+                                    handleTrashOperation(messageText);
+                                } else {
+                                    sendMessage(messageText);
+                                }
+                            }
+                        });
                     }
                 });
             }
