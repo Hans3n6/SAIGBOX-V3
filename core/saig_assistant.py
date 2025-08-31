@@ -688,48 +688,45 @@ Return only the fields that are clearly mentioned."""
         if len(emails_to_delete) == 1:
             email = emails_to_delete[0]
             
-            confirm_msg = f"""<div class="p-3 border border-amber-300 rounded bg-amber-50" style="width: 100%; box-sizing: border-box;">
-  <div class="text-sm font-medium text-gray-900 mb-2">🗑️ Move to Trash?</div>
-  <div class="text-xs text-gray-600 mb-2">This email will be moved to trash:</div>
-  <div class="bg-white p-2 rounded border border-gray-200 mb-2" style="overflow: hidden;">
-    <div class="text-xs font-medium text-gray-900 truncate">{email['subject'] or 'No Subject'}</div>
-    <div class="text-xs text-gray-500 truncate">From: {email['sender']}</div>
+            confirm_msg = f"""<div class="p-4 border border-amber-300 rounded-lg bg-amber-50" style="width: 100%; box-sizing: border-box;">
+  <div class="text-base font-semibold text-gray-900 mb-3">🗑️ Move to Trash?</div>
+  <div class="text-sm text-gray-600 mb-3">This email will be moved to trash:</div>
+  <div class="bg-white p-3 rounded border border-gray-200 mb-3" style="overflow: hidden;">
+    <div class="text-sm font-medium text-gray-900 truncate">{email['subject'] or 'No Subject'}</div>
+    <div class="text-sm text-gray-500 truncate">From: {email['sender']}</div>
   </div>
-  <div class="text-xs text-amber-700 mb-3">↩️ You can restore within 30 days</div>
-  <div class="flex gap-2 justify-end">
-    <button onclick="sendMessage('Cancel')" class="px-3 py-1 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50">Cancel</button>
-    <button onclick="sendMessage('Yes, move to trash')" class="px-3 py-1 text-xs rounded text-white bg-red-500 hover:bg-red-600">Move to Trash</button>
+  <div class="text-sm text-amber-700 mb-4">↩️ You can restore within 30 days</div>
+  <div class="flex gap-3 justify-end">
+    <button onclick="sendMessage('Cancel')" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Cancel</button>
+    <button onclick="sendMessage('Yes, move to trash')" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move to Trash</button>
   </div>
 </div>"""
         else:
-            # Multiple emails - create a simple, compact list
+            # Multiple emails - show ALL emails in scrollable list
             email_items_html = ""
-            # Show first 5 emails, indicate if there are more
-            emails_to_show = emails_to_delete[:5]
-            for email in emails_to_show:
+            # Show ALL emails (not just first 5)
+            for i, email in enumerate(emails_to_delete):
                 email_items_html += f"""
-    <div class="bg-white p-1.5 mb-1 rounded border border-gray-200" style="overflow: hidden;">
-      <div class="text-xs font-medium text-gray-900 truncate">{email['subject'] or 'No Subject'}</div>
-      <div class="text-xs text-gray-500 truncate">{email['sender']}</div>
+    <div class="bg-white p-2 mb-1.5 rounded border border-gray-200" style="overflow: hidden;">
+      <div class="text-sm font-medium text-gray-900 truncate">{email['subject'] or 'No Subject'}</div>
+      <div class="text-xs text-gray-500 truncate">From: {email['sender']}</div>
     </div>"""
             
-            if len(emails_to_delete) > 5:
-                email_items_html += f"""
-    <div class="text-xs text-gray-500 text-center py-1">...and {len(emails_to_delete) - 5} more</div>"""
-            
-            confirm_msg = f"""<div class="p-3 border border-amber-300 rounded bg-amber-50" style="width: 100%; box-sizing: border-box;">
-  <div class="text-sm font-medium text-gray-900 mb-2">🗑️ Move {len(emails_to_delete)} Email{'s' if len(emails_to_delete) > 1 else ''} to Trash?</div>
-  <div class="text-xs text-gray-600 mb-2">These emails will be moved to trash:</div>
-  <div style="max-height: 150px; overflow-y: auto; overflow-x: hidden;">
+            confirm_msg = f"""<div class="p-4 border border-amber-300 rounded-lg bg-amber-50" style="width: 100%; box-sizing: border-box;">
+  <div class="text-base font-semibold text-gray-900 mb-3">🗑️ Move {len(emails_to_delete)} Email{'s' if len(emails_to_delete) > 1 else ''} to Trash?</div>
+  <div class="text-sm text-gray-600 mb-3">These emails will be moved to trash:</div>
+  <div class="bg-gray-50 p-2 rounded border border-gray-200" style="max-height: 250px; overflow-y: auto; overflow-x: hidden; position: relative;">
+    <div style="position: sticky; top: 0; background: linear-gradient(to bottom, #f9fafb 0%, #f9fafb 90%, transparent 100%); z-index: 1; height: 10px; margin-bottom: -10px;"></div>
 {email_items_html}
+    <div style="position: sticky; bottom: 0; background: linear-gradient(to top, #f9fafb 0%, #f9fafb 90%, transparent 100%); z-index: 1; height: 10px; margin-top: -10px;"></div>
   </div>
-  <div class="text-xs text-amber-700 mb-3 mt-2">
+  <div class="text-sm text-amber-700 mb-4 mt-3">
     <div>📧 All {len(emails_to_delete)} emails will be moved to trash</div>
     <div>↩️ You can restore them within 30 days</div>
   </div>
-  <div class="flex gap-2 justify-end">
-    <button onclick="sendMessage('Cancel')" class="px-3 py-1 text-xs border border-gray-300 rounded bg-white hover:bg-gray-50">Cancel</button>
-    <button onclick="sendMessage('Yes, move all to trash')" class="px-3 py-1 text-xs rounded text-white bg-red-500 hover:bg-red-600">Move All to Trash</button>
+  <div class="flex gap-3 justify-end">
+    <button onclick="sendMessage('Cancel')" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Cancel</button>
+    <button onclick="sendMessage('Yes, move all to trash')" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move All to Trash</button>
   </div>
 </div>"""
         
