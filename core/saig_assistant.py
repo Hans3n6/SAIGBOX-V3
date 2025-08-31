@@ -455,15 +455,17 @@ Return as JSON with any of these fields that apply:
 - read_status: read/unread
 - has_attachments: true/false
 - content: keywords from email body (ONLY if searching for content, NOT for sender searches)
-- count: number of emails if specified (e.g. "last 5 emails")
+- count: number of emails if specified (e.g. "last 5 emails", "last 20 emails", "10 most recent")
 
 Examples:
 - "delete all emails from Lids" → {"sender": "Lids"}
+- "move the last 20 emails from Lids to trash" → {"sender": "Lids", "count": 20}
 - "delete emails about promotions" → {"subject": "promotions", "content": "promotions"}
 - "delete recent emails from Nike about sales" → {"sender": "Nike", "subject": "sales"}
 - "move all emails from john@example.com to trash" → {"sender": "john@example.com"}
 
 If the description mentions "all" or doesn't specify a limit, set count to null.
+If a specific number is mentioned (e.g., "last 20", "first 10"), set count to that number.
 Return only the fields that are clearly mentioned.
 NEVER include subject or content when only searching for sender."""
 
