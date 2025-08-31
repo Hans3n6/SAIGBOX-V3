@@ -875,6 +875,9 @@ NEVER include subject or content when only searching for sender."""
         logger.info(f"Found {len(emails_to_delete) if emails_to_delete else 0} emails to delete")
         if emails_to_delete:
             logger.info("First 3 emails to delete: %s", json.dumps(emails_to_delete[:3], default=str))
+            # Log the senders to verify we got the right emails
+            senders = list(set([e.get('sender', 'Unknown') for e in emails_to_delete]))
+            logger.info(f"Senders of emails to delete: {senders}")
         
         # If no emails found by description and there's a selected email, use that
         if not emails_to_delete and context.get('selected_email'):
@@ -892,6 +895,12 @@ NEVER include subject or content when only searching for sender."""
                 }]
         
         if not emails_to_delete:
+            # Be specific about what was searched
+            if 'from' in message.lower():
+                parts = message.lower().split('from')
+                if len(parts) > 1:
+                    sender = parts[1].strip().split()[0]
+                    return f"I couldn't find any emails from '{sender}'. Please check the sender name and try again.", []
             return "I couldn't find any emails matching that description. Please be more specific or select an email first.", []
         
         # Create simple, compact confirmation message
