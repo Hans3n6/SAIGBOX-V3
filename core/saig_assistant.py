@@ -92,6 +92,11 @@ class SAIGAssistant:
             "total_emails": 0
         }
         
+        # Preserve pending_delete if it exists in the context
+        if context and 'pending_delete' in context:
+            email_context['pending_delete'] = context['pending_delete']
+            logger.info(f"Preserved pending_delete in email_context: {len(context['pending_delete'].get('emails', []))} emails")
+        
         # Get email statistics
         email_context["total_emails"] = db.query(Email).filter(
             Email.user_id == user.id,
@@ -147,6 +152,13 @@ class SAIGAssistant:
         elif context and context.get("selected_email"):
             email_context["selected_email"] = context["selected_email"]
             logger.info(f"Preserved selected_email from context: {email_context['selected_email'].get('subject', 'Unknown')}")
+        
+        # Preserve any other context keys that might be needed
+        if context:
+            for key in context:
+                if key not in email_context and key not in ['email_id', 'selected_email']:
+                    email_context[key] = context[key]
+                    logger.info(f"Preserved additional context key: {key}")
         
         return email_context
     
@@ -541,6 +553,7 @@ Return only the fields that are clearly mentioned."""
         if context.get('pending_delete'):
             # Log the confirmation attempt
             logger.info(f"Processing trash confirmation: '{message}'")
+            logger.info(f"Number of emails in pending_delete: {len(context['pending_delete'].get('emails', []))}")
             
             # Check for various confirmation messages
             confirmation_phrases = [
@@ -565,7 +578,9 @@ Return only the fields that are clearly mentioned."""
                 success_count = 0
                 failed_count = 0
                 
+                logger.info(f"=== EXECUTING TRASH ACTION ====")
                 logger.info(f"Processing trash request for {len(pending['emails'])} emails")
+                logger.info(f"User confirmed with message: '{message}'")
                 
                 for email_data in pending['emails']:
                     email = db.query(Email).filter(
@@ -575,18 +590,30 @@ Return only the fields that are clearly mentioned."""
                     
                     if email:
                         logger.info(f"Moving email {email.id} to trash (gmail_id: {email.gmail_id})")
-                        if self.gmail_service.move_to_trash(user, email.gmail_id):
-                            email.deleted_at = datetime.utcnow()
-                            success_count += 1
-                            logger.info(f"Successfully moved email {email.id} to trash")
-                        else:
+                        logger.info(f"Email subject: {email.subject}")
+                        logger.info(f"Email sender: {email.sender}")
+                        
+                        # Try to move to trash in Gmail
+                        try:
+                            gmail_result = self.gmail_service.move_to_trash(user, email.gmail_id)
+                            logger.info(f"Gmail move_to_trash result: {gmail_result}")
+                            
+                            if gmail_result:
+                                email.deleted_at = datetime.utcnow()
+                                success_count += 1
+                                logger.info(f"Successfully moved email {email.id} to trash at {email.deleted_at}")
+                            else:
+                                failed_count += 1
+                                logger.error(f"Gmail service returned False for email {email.id}")
+                        except Exception as e:
                             failed_count += 1
-                            logger.error(f"Failed to move email {email.id} to trash")
+                            logger.error(f"Exception moving email {email.id} to trash: {e}")
                     else:
                         failed_count += 1
                         logger.error(f"Email not found in database: {email_data['id']}")
                 
                 db.commit()
+                logger.info(f"Database commit completed. Success: {success_count}, Failed: {failed_count}")
                 
                 # Clear the pending delete from context after processing
                 if 'pending_delete' in context:
@@ -646,6 +673,7 @@ Return only the fields that are clearly mentioned."""
 </div>""", []
             else:
                 # Clear pending delete from context on cancel
+                logger.info(f"User cancelled trash action with message: '{message}'")
                 if 'pending_delete' in context:
                     del context['pending_delete']
                 return """<div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
