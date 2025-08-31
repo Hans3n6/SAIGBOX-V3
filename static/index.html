@@ -289,11 +289,28 @@
                 <!-- Trash View -->
                 <div id="trash-view" class="hidden h-full p-6 overflow-y-auto">
                     <div class="max-w-4xl mx-auto">
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="text-lg font-semibold">Trash <span id="trash-count" class="text-sm text-gray-500"></span></h3>
+                        <div class="flex justify-between items-center mb-4">
+                            <div class="flex items-center space-x-4">
+                                <h3 class="text-lg font-semibold">Trash <span id="trash-count" class="text-sm text-gray-500"></span></h3>
+                                <label class="flex items-center cursor-pointer">
+                                    <input type="checkbox" id="trash-select-all" onclick="selectAllTrashEmails()" class="mr-2">
+                                    <span class="text-sm">Select All</span>
+                                </label>
+                            </div>
                             <button onclick="emptyTrash()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600">
                                 <i class="fas fa-trash-alt mr-2"></i>Empty Trash
                             </button>
+                        </div>
+                        
+                        <!-- Bulk action buttons -->
+                        <div id="trash-bulk-actions" class="flex space-x-2 mb-4" style="display: none;">
+                            <button onclick="bulkRestoreEmails()" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">
+                                <i class="fas fa-undo mr-2"></i>Restore Selected
+                            </button>
+                            <button onclick="bulkDeleteEmails()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600">
+                                <i class="fas fa-trash mr-2"></i>Delete Selected
+                            </button>
+                            <span id="trash-selection-count" class="text-sm text-gray-600 self-center ml-4"></span>
                         </div>
                         
                         <div id="trash-list" class="space-y-2">
@@ -2069,8 +2086,15 @@
             
             if (trashedEmails.length === 0) {
                 listEl.innerHTML = '<div class="text-center text-gray-500 p-8">Trash is empty</div>';
+                // Hide bulk action buttons when trash is empty
+                const bulkActions = document.getElementById('trash-bulk-actions');
+                if (bulkActions) bulkActions.style.display = 'none';
                 return;
             }
+            
+            // Show bulk action buttons when there are items
+            const bulkActions = document.getElementById('trash-bulk-actions');
+            if (bulkActions) bulkActions.style.display = 'flex';
             
             // Helper function to escape HTML
             const escapeHtml = (str) => {
@@ -2081,9 +2105,15 @@
             };
             
             listEl.innerHTML = trashedEmails.map(email => `
-                <div data-email-id="${escapeHtml(email.id)}" class="trash-email-card bg-white p-4 rounded-lg shadow mb-3 cursor-pointer hover:shadow-md transition-shadow">
-                    <div class="flex justify-between items-start">
-                        <div class="flex-1 min-w-0 mr-4" onclick="viewTrashedEmail('${escapeHtml(email.id)}')">
+                <div data-email-id="${escapeHtml(email.id)}" class="trash-email-card bg-white p-4 rounded-lg shadow mb-3 hover:shadow-md transition-shadow">
+                    <div class="flex items-start">
+                        <div class="mr-3 pt-1">
+                            <input type="checkbox" 
+                                   class="trash-email-checkbox" 
+                                   data-email-id="${escapeHtml(email.id)}"
+                                   onclick="event.stopPropagation(); updateTrashSelection()">
+                        </div>
+                        <div class="flex-1 min-w-0 mr-4 cursor-pointer" onclick="viewTrashedEmail('${escapeHtml(email.id)}')">
                             <div class="flex justify-between items-start mb-1 gap-2">
                                 <span class="font-medium text-sm truncate flex-1">${escapeHtml(email.sender_name || email.sender)}</span>
                                 <span class="text-xs text-gray-500 whitespace-nowrap">${formatDate(email.received_at)}</span>
@@ -2106,6 +2136,10 @@
                     </div>
                 </div>
             `).join('');
+            
+            // Reset select all checkbox
+            const selectAllCheckbox = document.getElementById('trash-select-all');
+            if (selectAllCheckbox) selectAllCheckbox.checked = false;
         }
         
         // SAIG Chat Functions
@@ -3729,6 +3763,126 @@ Generate a thoughtful and contextually appropriate response that:
                 }
             } catch (error) {
                 console.error('Error deleting email:', error);
+            }
+        }
+        
+        // Bulk trash operations
+        function selectAllTrashEmails() {
+            const selectAll = document.getElementById('trash-select-all');
+            const checkboxes = document.querySelectorAll('.trash-email-checkbox');
+            
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = selectAll.checked;
+            });
+            
+            updateTrashSelection();
+        }
+        
+        function updateTrashSelection() {
+            const checkboxes = document.querySelectorAll('.trash-email-checkbox');
+            const checkedBoxes = document.querySelectorAll('.trash-email-checkbox:checked');
+            const selectAll = document.getElementById('trash-select-all');
+            const selectionCount = document.getElementById('trash-selection-count');
+            const bulkActions = document.getElementById('trash-bulk-actions');
+            
+            // Update select all checkbox state
+            if (selectAll) {
+                selectAll.checked = checkboxes.length > 0 && checkboxes.length === checkedBoxes.length;
+                selectAll.indeterminate = checkedBoxes.length > 0 && checkedBoxes.length < checkboxes.length;
+            }
+            
+            // Show/hide bulk actions
+            if (bulkActions) {
+                bulkActions.style.display = checkedBoxes.length > 0 ? 'flex' : 'none';
+            }
+            
+            // Update selection count
+            if (selectionCount) {
+                selectionCount.textContent = checkedBoxes.length > 0 ? `${checkedBoxes.length} selected` : '';
+            }
+        }
+        
+        async function bulkRestoreEmails() {
+            const checkedBoxes = document.querySelectorAll('.trash-email-checkbox:checked');
+            const emailIds = Array.from(checkedBoxes).map(cb => cb.dataset.emailId);
+            
+            if (emailIds.length === 0) {
+                showNotification('No emails selected', 'warning');
+                return;
+            }
+            
+            if (!confirm(`Restore ${emailIds.length} email(s)?`)) return;
+            
+            let successCount = 0;
+            let failCount = 0;
+            
+            for (const emailId of emailIds) {
+                try {
+                    const response = await fetch(`/api/trash/${emailId}/restore`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${authToken}`
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        successCount++;
+                    } else {
+                        failCount++;
+                    }
+                } catch (error) {
+                    console.error('Error restoring email:', error);
+                    failCount++;
+                }
+            }
+            
+            if (successCount > 0) {
+                showNotification(`Restored ${successCount} email(s)${failCount > 0 ? `, ${failCount} failed` : ''}`, 'success');
+                loadTrash();
+            } else {
+                showNotification('Failed to restore emails', 'error');
+            }
+        }
+        
+        async function bulkDeleteEmails() {
+            const checkedBoxes = document.querySelectorAll('.trash-email-checkbox:checked');
+            const emailIds = Array.from(checkedBoxes).map(cb => cb.dataset.emailId);
+            
+            if (emailIds.length === 0) {
+                showNotification('No emails selected', 'warning');
+                return;
+            }
+            
+            if (!confirm(`Permanently delete ${emailIds.length} email(s)? This cannot be undone.`)) return;
+            
+            let successCount = 0;
+            let failCount = 0;
+            
+            for (const emailId of emailIds) {
+                try {
+                    const response = await fetch(`/api/trash/${emailId}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Authorization': `Bearer ${authToken}`
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        successCount++;
+                    } else {
+                        failCount++;
+                    }
+                } catch (error) {
+                    console.error('Error deleting email:', error);
+                    failCount++;
+                }
+            }
+            
+            if (successCount > 0) {
+                showNotification(`Deleted ${successCount} email(s)${failCount > 0 ? `, ${failCount} failed` : ''}`, 'success');
+                loadTrash();
+            } else {
+                showNotification('Failed to delete emails', 'error');
             }
         }
         
