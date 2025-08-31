@@ -1095,6 +1095,49 @@ window.moveSelectedToTrash = function() {{
 
 // Make sure the trash email list is accessible
 console.log("Trash preview loaded with " + window.trashEmailList.length + " emails");
+
+// Ensure function is available immediately and also on DOM ready
+(function() {{
+  // Define the function immediately
+  if (!window.moveSelectedToTrash) {{
+    console.error("moveSelectedToTrash was not defined properly, redefining...");
+    window.moveSelectedToTrash = function() {{
+      console.log("Fallback moveSelectedToTrash called");
+      const checkboxes = document.querySelectorAll(".trash-email-checkbox:checked");
+      const selectedEmails = Array.from(checkboxes).map(cb => {{
+        const emailId = cb.getAttribute("data-email-id");
+        return window.trashEmailList.find(e => e.id === emailId);
+      }}).filter(e => e);
+      
+      if (selectedEmails.length === 0) {{
+        alert("Please select at least one email to move to trash");
+        return;
+      }}
+      
+      if (window.saigContext && window.saigContext.pending_delete) {{
+        window.saigContext.pending_delete.emails = selectedEmails;
+      }}
+      
+      if (typeof window.sendMessage === "function") {{
+        window.sendMessage("Move all to trash");
+      }} else {{
+        const event = new CustomEvent("sendTrashConfirmation", {{
+          detail: {{ emails: selectedEmails }}
+        }});
+        document.dispatchEvent(event);
+      }}
+    }};
+  }}
+  
+  // Also ensure it's available after a brief delay
+  setTimeout(function() {{
+    if (!window.moveSelectedToTrash) {{
+      console.error("moveSelectedToTrash still not available after delay!");
+    }} else {{
+      console.log("moveSelectedToTrash is available");
+    }}
+  }}, 100);
+}})();
 </script>"""
         
         # Store pending delete in context for confirmation
