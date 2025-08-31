@@ -968,7 +968,7 @@ NEVER include subject or content when only searching for sender."""
   </div>
   <div class="flex gap-3 justify-end">
     <button data-action="send-message" data-message="Cancel" onclick="sendMessage('Cancel')" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Cancel</button>
-    <button id="move-selected-btn" data-action="send-message" data-message="Move selected to trash" onclick="moveSelectedToTrash()" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move Selected to Trash</button>
+    <button id="move-selected-btn" data-action="send-message" data-message="Move selected to trash" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move Selected to Trash</button>
   </div>
 </div>
 <script>
@@ -1073,6 +1073,29 @@ window.moveSelectedToTrash = function() {{
     sendMessage('Move all to trash');
   }}
 }}
+
+// Add event listener for the move button after functions are defined
+document.addEventListener('DOMContentLoaded', function() {{
+  const moveBtn = document.getElementById('move-selected-btn');
+  if (moveBtn) {{
+    moveBtn.addEventListener('click', function(e) {{
+      e.preventDefault();
+      window.moveSelectedToTrash();
+    }});
+  }}
+}});
+
+// Also try to add it immediately in case DOM is already loaded
+setTimeout(function() {{
+  const moveBtn = document.getElementById('move-selected-btn');
+  if (moveBtn && !moveBtn.hasAttribute('data-listener-added')) {{
+    moveBtn.setAttribute('data-listener-added', 'true');
+    moveBtn.addEventListener('click', function(e) {{
+      e.preventDefault();
+      window.moveSelectedToTrash();
+    }});
+  }}
+}}, 100);
 </script>"""
         
         # Store pending delete in context for confirmation
