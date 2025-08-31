@@ -470,7 +470,7 @@ NEVER include subject or content when only searching for sender."""
             criteria = json.loads(criteria_json.strip())
             
             logger.info(f"=== Email Search Criteria ===")
-            logger.info(f"Description: '{description}'")
+            logger.info(f"Description: {description!r}")
             logger.info(f"Extracted criteria: {json.dumps(criteria, indent=2)}")
             
             # Build query
@@ -482,7 +482,7 @@ NEVER include subject or content when only searching for sender."""
             # Apply filters based on criteria
             if criteria.get('sender'):
                 sender_term = f"%{criteria['sender']}%"
-                logger.info(f"Searching for sender: '{sender_term}' (ONLY in sender fields)")
+                logger.info(f"Searching for sender: {sender_term!r} (ONLY in sender fields)")
                 query = query.filter(
                     or_(
                         Email.sender.ilike(sender_term),
@@ -550,7 +550,7 @@ NEVER include subject or content when only searching for sender."""
             if emails:
                 logger.info(f"Sample results (first 3):")
                 for i, email in enumerate(emails[:3]):
-                    logger.info(f"  {i+1}. From: {email.sender_name or email.sender} | Subject: {email.subject}")
+                    logger.info(f"  {i+1}. From: {email.sender_name or email.sender!r} | Subject: {email.subject!r}")
             
             # Convert to dict format
             return [
