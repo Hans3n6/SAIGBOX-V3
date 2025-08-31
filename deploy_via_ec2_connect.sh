@@ -151,7 +151,22 @@ ENDSSH
 # Clean up temporary key
 rm -f $TEMP_KEY $TEMP_KEY.pub
 
-echo -e "${YELLOW}✅ Step 6: Verifying deployment...${NC}"
+echo -e "${YELLOW}✅ Step 6: Ensuring SSL is configured...${NC}"
+
+# Re-apply SSL configuration if it exists
+ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@3.233.250.55 << 'EOF' 2>/dev/null
+# Check if SSL certificate exists and re-apply nginx configuration
+if [ -d "/etc/letsencrypt/live/api.saigbox.com" ]; then
+    echo "SSL certificate found, ensuring nginx is configured for HTTPS..."
+    sudo certbot --nginx -d api.saigbox.com --non-interactive --agree-tos --email hans@saigbox.com --redirect > /dev/null 2>&1
+    sudo systemctl reload nginx
+    echo "SSL configuration applied"
+else
+    echo "No SSL certificate found. Run ./deploy_ssl_setup.sh to enable HTTPS"
+fi
+EOF
+
+echo -e "${YELLOW}✅ Step 7: Verifying deployment...${NC}"
 
 # Test the API
 echo "Testing API health endpoint..."
@@ -161,12 +176,9 @@ echo ""
 echo -e "${GREEN}🎉 Deployment Complete!${NC}"
 echo ""
 echo "Your backend is accessible at:"
-echo "  - http://3.233.250.55"
-echo "  - http://api.saigbox.com (once DNS is configured)"
-echo ""
-echo "To set up HTTPS:"
-echo "1. Ensure DNS A record points api.saigbox.com to 3.233.250.55"
-echo "2. Run: ./setup_ssl.sh on the server"
+echo "  - https://api.saigbox.com"
+echo "  - https://api.saigbox.com/health (API health check)"
+echo "  - https://api.saigbox.com/docs (API documentation)"
 echo ""
 echo "To view logs:"
 echo "  aws ec2-instance-connect send-ssh-public-key --instance-id $INSTANCE_ID --instance-os-user ubuntu --ssh-public-key file://~/.ssh/id_rsa.pub --availability-zone us-east-1a"
