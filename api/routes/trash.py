@@ -35,7 +35,7 @@ async def list_trashed_emails(
     emails = db.query(EmailModel).filter(
         EmailModel.user_id == current_user.id,
         EmailModel.deleted_at.isnot(None)
-    ).order_by(EmailModel.deleted_at.desc()).all()
+    ).order_by(EmailModel.received_at.desc()).all()
     
     # Clean email data to ensure all list fields are not None
     emails = clean_email_data(emails)

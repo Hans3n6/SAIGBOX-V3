@@ -290,7 +290,7 @@
                 <div id="trash-view" class="hidden h-full p-6 overflow-y-auto">
                     <div class="max-w-4xl mx-auto">
                         <div class="flex justify-between items-center mb-6">
-                            <h3 class="text-lg font-semibold">Trash</h3>
+                            <h3 class="text-lg font-semibold">Trash <span id="trash-count" class="text-sm text-gray-500"></span></h3>
                             <button onclick="emptyTrash()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600">
                                 <i class="fas fa-trash-alt mr-2"></i>Empty Trash
                             </button>
@@ -2060,25 +2060,49 @@
         
         function renderTrash(trashedEmails) {
             const listEl = document.getElementById('trash-list');
+            const countEl = document.getElementById('trash-count');
+            
+            // Update count in header
+            if (countEl) {
+                countEl.textContent = `(${trashedEmails.length})`;
+            }
             
             if (trashedEmails.length === 0) {
-                listEl.innerHTML = '<div class="text-center text-gray-500">Trash is empty</div>';
+                listEl.innerHTML = '<div class="text-center text-gray-500 p-8">Trash is empty</div>';
                 return;
             }
             
+            // Helper function to escape HTML
+            const escapeHtml = (str) => {
+                if (!str) return '';
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
+            };
+            
             listEl.innerHTML = trashedEmails.map(email => `
-                <div class="bg-white p-4 rounded-lg shadow flex justify-between items-center">
-                    <div>
-                        <div class="font-medium">${email.subject || '(No subject)'}</div>
-                        <div class="text-sm text-gray-600">${email.sender} • ${formatDate(email.deleted_at)}</div>
-                    </div>
-                    <div class="flex space-x-2">
-                        <button onclick="restoreEmail('${email.id}')" class="text-blue-500 hover:text-blue-600">
-                            <i class="fas fa-undo"></i> Restore
-                        </button>
-                        <button onclick="permanentlyDelete('${email.id}')" class="text-red-500 hover:text-red-600">
-                            <i class="fas fa-times"></i> Delete
-                        </button>
+                <div data-email-id="${escapeHtml(email.id)}" class="trash-email-card bg-white p-4 rounded-lg shadow mb-3 cursor-pointer hover:shadow-md transition-shadow">
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1 min-w-0 mr-4" onclick="viewTrashedEmail('${escapeHtml(email.id)}')">
+                            <div class="flex justify-between items-start mb-1 gap-2">
+                                <span class="font-medium text-sm truncate flex-1">${escapeHtml(email.sender_name || email.sender)}</span>
+                                <span class="text-xs text-gray-500 whitespace-nowrap">${formatDate(email.received_at)}</span>
+                            </div>
+                            <div class="text-sm font-medium mb-1 truncate">${escapeHtml(email.subject || '(No subject)')}</div>
+                            <div class="text-xs text-gray-600 truncate">${escapeHtml(email.snippet || '')}</div>
+                            <div class="flex items-center mt-2 space-x-2 text-xs text-gray-400">
+                                <span><i class="fas fa-trash-alt mr-1"></i>Deleted ${formatDate(email.deleted_at)}</span>
+                                ${email.has_attachments ? '<i class="fas fa-paperclip text-gray-400"></i>' : ''}
+                            </div>
+                        </div>
+                        <div class="flex flex-col space-y-2">
+                            <button onclick="event.stopPropagation(); restoreEmail('${escapeHtml(email.id)}')" class="text-blue-500 hover:text-blue-600 text-sm">
+                                <i class="fas fa-undo"></i> Restore
+                            </button>
+                            <button onclick="event.stopPropagation(); permanentlyDelete('${escapeHtml(email.id)}')" class="text-red-500 hover:text-red-600 text-sm">
+                                <i class="fas fa-times"></i> Delete
+                            </button>
+                        </div>
                     </div>
                 </div>
             `).join('');
@@ -3607,6 +3631,68 @@ Generate a thoughtful and contextually appropriate response that:
                 }
             } catch (error) {
                 console.error('Error deleting action:', error);
+            }
+        }
+        
+        async function viewTrashedEmail(emailId) {
+            try {
+                // Find the email in the trashedEmails array
+                const email = trashedEmails.find(e => e.id === emailId);
+                if (!email) {
+                    console.error('Email not found in trash');
+                    return;
+                }
+                
+                // Use the existing viewEmail function to display the email
+                // Create a modal to display the email content
+                const modal = document.createElement('div');
+                modal.className = 'modal fade show';
+                modal.style.display = 'block';
+                modal.style.backgroundColor = 'rgba(0,0,0,0.5)';
+                
+                modal.innerHTML = `
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">${email.subject || 'No Subject'}</h5>
+                                <button type="button" class="btn-close" onclick="this.closest('.modal').remove()"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="mb-3">
+                                    <strong>From:</strong> ${email.sender || 'Unknown Sender'}<br>
+                                    <strong>Date:</strong> ${new Date(email.received_at).toLocaleString()}<br>
+                                    ${email.recipients && email.recipients.length > 0 ? `<strong>To:</strong> ${email.recipients.join(', ')}<br>` : ''}
+                                </div>
+                                <hr>
+                                <div style="white-space: pre-wrap; word-wrap: break-word;">
+                                    ${email.body_text || email.snippet || 'No content available'}
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-success" onclick="restoreEmail('${emailId}'); this.closest('.modal').remove()">
+                                    <i class="fas fa-undo"></i> Restore
+                                </button>
+                                <button type="button" class="btn btn-danger" onclick="permanentlyDelete('${emailId}'); this.closest('.modal').remove()">
+                                    <i class="fas fa-trash"></i> Delete Permanently
+                                </button>
+                                <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Close</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(modal);
+                
+                // Close modal when clicking outside
+                modal.addEventListener('click', function(e) {
+                    if (e.target === modal) {
+                        modal.remove();
+                    }
+                });
+                
+            } catch (error) {
+                console.error('Error viewing trashed email:', error);
+                showNotification('Error viewing email', 'error');
             }
         }
         
