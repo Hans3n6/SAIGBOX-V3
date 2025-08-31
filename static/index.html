@@ -3736,9 +3736,10 @@ Generate a thoughtful and contextually appropriate response that:
             try {
                 const response = await fetch(`/api/trash/${emailId}/restore`, {
                     method: 'POST',
-                    headers: {
+                    headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`
-                    }
+                    } : {},
+                    credentials: 'include'
                 });
                 
                 if (response.ok) {
@@ -3755,9 +3756,10 @@ Generate a thoughtful and contextually appropriate response that:
             try {
                 const response = await fetch(`/api/trash/${emailId}`, {
                     method: 'DELETE',
-                    headers: {
+                    headers: authToken !== 'session' ? {
                         'Authorization': `Bearer ${authToken}`
-                    }
+                    } : {},
+                    credentials: 'include'
                 });
                 
                 if (response.ok) {
@@ -3822,9 +3824,10 @@ Generate a thoughtful and contextually appropriate response that:
                 try {
                     const response = await fetch(`/api/trash/${emailId}/restore`, {
                         method: 'POST',
-                        headers: {
+                        headers: authToken !== 'session' ? {
                             'Authorization': `Bearer ${authToken}`
-                        }
+                        } : {},
+                        credentials: 'include'
                     });
                     
                     if (response.ok) {
@@ -3864,9 +3867,10 @@ Generate a thoughtful and contextually appropriate response that:
                 try {
                     const response = await fetch(`/api/trash/${emailId}`, {
                         method: 'DELETE',
-                        headers: {
+                        headers: authToken !== 'session' ? {
                             'Authorization': `Bearer ${authToken}`
-                        }
+                        } : {},
+                        credentials: 'include'
                     });
                     
                     if (response.ok) {
