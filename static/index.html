@@ -2159,15 +2159,26 @@
             }
         }
         
-        async function sendMessage() {
+        // Store SAIG context for maintaining state across messages
+        let saigContext = {};
+        
+        async function sendMessage(directMessage = null) {
             const input = document.getElementById('chat-input');
-            const message = input.value.trim();
+            const message = directMessage || input.value.trim();
             
             if (!message) return;
             
             // Add user message
             addChatMessage(message, 'user');
-            input.value = '';
+            if (!directMessage) {
+                input.value = '';
+            }
+            
+            // Build context including any pending operations
+            const fullContext = {
+                ...saigContext,
+                ...(selectedEmailId ? { email_id: selectedEmailId } : {})
+            };
             
             // Send to SAIG
             try {
@@ -2182,16 +2193,30 @@
                     credentials: 'include',
                     body: JSON.stringify({
                         message: message,
-                        context: selectedEmailId ? { email_id: selectedEmailId } : null
+                        context: fullContext
                     })
                 });
                 
                 if (response.ok) {
                     const result = await response.json();
+                    
+                    // Update SAIG context if provided
+                    if (result.context) {
+                        saigContext = result.context;
+                    }
+                    
+                    // Parse the response to check for pending operations
+                    if (result.response.includes('pending_delete') || result.response.includes('Move to Trash?') || result.response.includes('Move All to Trash?')) {
+                        // Store that we have a pending delete operation
+                        saigContext.pending_delete = true;
+                    }
+                    
                     addChatMessage(result.response, 'assistant');
                     
                     // Check if the response indicates trash action was completed
                     if (result.actions_taken && result.actions_taken.includes('emails_moved_to_trash')) {
+                        // Clear pending delete from context
+                        delete saigContext.pending_delete;
                         // Close the email detail view if open
                         const detailContainer = document.getElementById('email-detail-container');
                         if (detailContainer) {
@@ -2209,6 +2234,8 @@
             } catch (error) {
                 console.error('Error sending message:', error);
                 addChatMessage('Sorry, I encountered an error. Please try again.', 'assistant');
+                // Clear context on error
+                saigContext = {};
             }
         }
         

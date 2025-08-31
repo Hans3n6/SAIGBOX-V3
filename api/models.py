@@ -157,6 +157,7 @@ class ChatMessage(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     actions_taken: List[str] = []
+    context: Optional[Dict[str, Any]] = None
 
 class SyncStatus(BaseModel):
     is_syncing: bool

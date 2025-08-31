@@ -28,7 +28,8 @@ async def chat_with_saig(
         
         return ChatResponse(
             response=result["response"],
-            actions_taken=result.get("actions_taken", [])
+            actions_taken=result.get("actions_taken", []),
+            context=result.get("context", {})
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

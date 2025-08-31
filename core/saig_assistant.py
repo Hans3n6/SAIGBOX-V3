@@ -53,10 +53,12 @@ class SAIGAssistant:
             db.add(assistant_msg)
             db.commit()
             
+            # Return response with updated context
             return {
                 "response": response,
                 "actions_taken": actions,
-                "intent": intent
+                "intent": intent,
+                "context": email_context  # Return the context for frontend to maintain state
             }
             
         except Exception as e:
