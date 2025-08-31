@@ -219,6 +219,13 @@ class SimpleEmailHandler:
 <script>
 // Store the email list with more details for viewing
 window.trashEmailList = {json.dumps([{'id': str(e.id), 'subject': e.subject, 'sender': e.sender_name or e.sender, 'date': e.received_at.strftime('%Y-%m-%d %H:%M'), 'snippet': e.snippet[:200] if e.snippet else ''} for e in emails])};
+
+// Initialize the count display after a short delay to ensure DOM is ready
+setTimeout(function() {{
+    if (window.saigActions && window.saigActions.updateTrashCount) {{
+        window.saigActions.updateTrashCount();
+    }}
+}}, 100);
 </script>"""
     
     def execute_deletion(self, db: Session, user: User, email_ids: List[str], gmail_service) -> Dict[str, Any]:

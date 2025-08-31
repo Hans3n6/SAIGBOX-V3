@@ -2510,6 +2510,10 @@
                 checkboxes.forEach(cb => cb.checked = select);
                 // Trigger count update
                 window.saigActions.updateTrashCount();
+                // Also update trash page selection if on trash view
+                if (typeof updateTrashSelection === 'function') {
+                    updateTrashSelection();
+                }
             },
             
             updateTrashCount: function() {
@@ -4039,6 +4043,12 @@ Generate a thoughtful and contextually appropriate response that:
         function selectAllTrashEmails() {
             const selectAll = document.getElementById('trash-select-all');
             const checkboxes = document.querySelectorAll('.trash-email-checkbox');
+            
+            if (checkboxes.length === 0) {
+                // No emails in trash
+                console.log('No emails found in trash to select');
+                return;
+            }
             
             checkboxes.forEach(checkbox => {
                 checkbox.checked = selectAll.checked;
