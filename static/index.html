@@ -2160,17 +2160,19 @@
         }
         
         // Store SAIG context for maintaining state across messages
-        let saigContext = {};
+        // Make it global so onclick handlers in innerHTML can access it
+        window.saigContext = {};
         
-        async function sendMessage(directMessage = null) {
+        window.sendMessage = async function(directMessage = null) {
             console.log('=== sendMessage called ===');
             console.log('Direct message:', directMessage);
+            console.log('window.saigContext at start:', window.saigContext);
             
             const input = document.getElementById('chat-input');
             const message = directMessage || input.value.trim();
             
             console.log('Message to send:', message);
-            console.log('Current saigContext:', saigContext);
+            console.log('Current window.saigContext:', window.saigContext);
             
             if (!message) {
                 console.log('No message, returning');
@@ -2186,7 +2188,7 @@
             // Build context including any pending operations and selected email
             const selectedEmail = selectedEmailId ? emails.find(e => e.id === selectedEmailId) : null;
             const fullContext = {
-                ...saigContext,
+                ...window.saigContext,
                 ...(selectedEmail ? { 
                     selected_email: {
                         id: selectedEmail.id,
@@ -2227,9 +2229,9 @@
                     
                     // Update SAIG context if provided
                     if (result.context) {
-                        console.log('Updating saigContext with:', result.context);
-                        saigContext = result.context;
-                        console.log('saigContext after update:', saigContext);
+                        console.log('Updating window.saigContext with:', result.context);
+                        window.saigContext = result.context;
+                        console.log('window.saigContext after update:', window.saigContext);
                     } else {
                         console.log('No context in response');
                     }
@@ -2239,7 +2241,7 @@
                     // Check if the response indicates trash action was completed
                     if (result.actions_taken && result.actions_taken.includes('emails_moved_to_trash')) {
                         // Clear pending delete from context
-                        delete saigContext.pending_delete;
+                        delete window.saigContext.pending_delete;
                         // Close the email detail view if open
                         const detailContainer = document.getElementById('email-detail-container');
                         if (detailContainer) {
