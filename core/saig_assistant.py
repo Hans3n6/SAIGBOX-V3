@@ -938,8 +938,8 @@ NEVER include subject or content when only searching for sender."""
       <div class="flex items-start gap-2">
         <input type="checkbox" id="{checkbox_id}" data-email-id="{email['id']}" checked 
                class="mt-1 trash-email-checkbox" 
-               onchange="updateTrashCount()">
-        <div class="flex-1 cursor-pointer" onclick="viewEmailFromPreview('{email['id']}')">
+               onchange="window.saigActions.updateTrashCount()">
+        <div class="flex-1 cursor-pointer" onclick="window.saigActions.viewEmailFromPreview('{email['id']}')">
           <div class="text-sm font-medium text-gray-900 truncate">{email['subject'] or 'No Subject'}</div>
           <div class="text-xs text-gray-500 truncate">From: {email['sender']}</div>
           <div class="text-xs text-gray-400 truncate">Date: {str(email['date'])[:10] if email.get('date') else 'Unknown'}</div>
@@ -953,8 +953,8 @@ NEVER include subject or content when only searching for sender."""
     <span id="trash-count-display">{len(emails_to_delete)} of {len(emails_to_delete)}</span> emails selected
   </div>
   <div class="mb-3 flex gap-2">
-    <button onclick="selectAllTrashEmails(true)" class="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50">Select All</button>
-    <button onclick="selectAllTrashEmails(false)" class="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50">Deselect All</button>
+    <button onclick="window.saigActions.selectAllTrashEmails(true)" class="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50">Select All</button>
+    <button onclick="window.saigActions.selectAllTrashEmails(false)" class="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50">Deselect All</button>
   </div>
   <div class="bg-gray-50 p-2 rounded border border-gray-200" style="max-height: 250px; overflow-y: auto; overflow-x: hidden; position: relative;">
     <div style="position: sticky; top: 0; background: linear-gradient(to bottom, #f9fafb 0%, #f9fafb 90%, transparent 100%); z-index: 1; height: 10px; margin-bottom: -10px;"></div>
@@ -968,14 +968,23 @@ NEVER include subject or content when only searching for sender."""
   </div>
   <div class="flex gap-3 justify-end">
     <button data-action="send-message" data-message="Cancel" onclick="sendMessage('Cancel')" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Cancel</button>
-    <button id="move-selected-btn" onclick="window.moveSelectedToTrash()" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move Selected to Trash</button>
+    <button id="move-selected-btn" onclick="window.saigActions.moveSelectedToTrash()" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move Selected to Trash</button>
   </div>
 </div>
 <script>
 // Track original email list
 window.trashEmailList = {json.dumps(emails_to_delete, default=str)};
 
-window.updateTrashCount = function() {{
+// These functions should already be defined in the main application
+// But we'll ensure they work by checking and using the pre-defined ones
+if (window.saigActions) {{
+  console.log("Using pre-defined SAIG actions");
+  // The functions are already set up in the main application
+}} else {{
+  console.error("SAIG actions not found! Defining fallbacks...");
+  
+  // Fallback definitions if somehow the main app didn't load them
+  window.updateTrashCount = function() {{
   const checkboxes = document.querySelectorAll('.trash-email-checkbox');
   const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
   const totalCount = checkboxes.length;
@@ -1093,51 +1102,19 @@ window.moveSelectedToTrash = function() {{
   document.dispatchEvent(event);
 }}
 
-// Make sure the trash email list is accessible
+}}
+
+// Log that the preview is loaded
 console.log("Trash preview loaded with " + window.trashEmailList.length + " emails");
 
-// Ensure function is available immediately and also on DOM ready
-(function() {{
-  // Define the function immediately
-  if (!window.moveSelectedToTrash) {{
-    console.error("moveSelectedToTrash was not defined properly, redefining...");
-    window.moveSelectedToTrash = function() {{
-      console.log("Fallback moveSelectedToTrash called");
-      const checkboxes = document.querySelectorAll(".trash-email-checkbox:checked");
-      const selectedEmails = Array.from(checkboxes).map(cb => {{
-        const emailId = cb.getAttribute("data-email-id");
-        return window.trashEmailList.find(e => e.id === emailId);
-      }}).filter(e => e);
-      
-      if (selectedEmails.length === 0) {{
-        alert("Please select at least one email to move to trash");
-        return;
-      }}
-      
-      if (window.saigContext && window.saigContext.pending_delete) {{
-        window.saigContext.pending_delete.emails = selectedEmails;
-      }}
-      
-      if (typeof window.sendMessage === "function") {{
-        window.sendMessage("Move all to trash");
-      }} else {{
-        const event = new CustomEvent("sendTrashConfirmation", {{
-          detail: {{ emails: selectedEmails }}
-        }});
-        document.dispatchEvent(event);
-      }}
-    }};
+// Verify the functions are available
+setTimeout(function() {{
+  if (window.saigActions && window.saigActions.moveSelectedToTrash) {{
+    console.log("✅ SAIG actions are available and ready");
+  }} else {{
+    console.error("❌ SAIG actions not available - buttons may not work!");
   }}
-  
-  // Also ensure it's available after a brief delay
-  setTimeout(function() {{
-    if (!window.moveSelectedToTrash) {{
-      console.error("moveSelectedToTrash still not available after delay!");
-    }} else {{
-      console.log("moveSelectedToTrash is available");
-    }}
-  }}, 100);
-}})();
+}}, 100);
 </script>"""
         
         # Store pending delete in context for confirmation

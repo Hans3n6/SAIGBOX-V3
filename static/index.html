@@ -2407,6 +2407,135 @@
         // Make sendMessage available globally for the main chat input button
         window.sendMessage = sendMessage;
         
+        // Pre-defined SAIG action functions to ensure they're always available
+        window.saigActions = {
+            moveSelectedToTrash: function() {
+                console.log("SAIG Action: moveSelectedToTrash called");
+                
+                // Get all selected email IDs
+                const checkboxes = document.querySelectorAll(".trash-email-checkbox:checked");
+                const selectedEmails = Array.from(checkboxes).map(cb => {
+                    const emailId = cb.getAttribute("data-email-id");
+                    // Try to find email in window.trashEmailList if it exists
+                    if (window.trashEmailList) {
+                        return window.trashEmailList.find(e => e.id === emailId);
+                    }
+                    return { id: emailId };
+                }).filter(e => e);
+                
+                console.log("Found", selectedEmails.length, "selected emails");
+                
+                if (selectedEmails.length === 0) {
+                    alert("Please select at least one email to move to trash");
+                    return;
+                }
+                
+                // Update the pending_delete in context to only include selected emails
+                if (saigContext && saigContext.pending_delete) {
+                    console.log("Updating context from", saigContext.pending_delete.emails.length, "to", selectedEmails.length, "emails");
+                    saigContext.pending_delete.emails = selectedEmails;
+                }
+                
+                // Send the confirmation message
+                console.log("Sending trash confirmation...");
+                sendMessage("Move all to trash");
+            },
+            
+            viewEmailFromPreview: function(emailId) {
+                console.log("SAIG Action: viewEmailFromPreview called for", emailId);
+                
+                // Find the email in the trash list or all loaded emails
+                const email = (window.trashEmailList && window.trashEmailList.find(e => e.id === emailId)) ||
+                             allLoadedEmails.find(e => e.id === emailId);
+                             
+                if (email) {
+                    // Create a modal to show the email
+                    const modal = document.createElement('div');
+                    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50';
+                    modal.innerHTML = `
+                        <div class="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6">
+                            <div class="flex justify-between items-start mb-4">
+                                <h3 class="text-lg font-semibold text-gray-900">${email.subject || 'No Subject'}</h3>
+                                <button onclick="this.closest('.fixed').remove()" class="text-gray-400 hover:text-gray-600">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="text-sm text-gray-600 mb-4">
+                                <div>From: ${email.sender_name || email.sender}</div>
+                                <div>Date: ${email.received_at || email.date || 'Unknown'}</div>
+                            </div>
+                            <div class="text-sm text-gray-700">
+                                <p>Loading email content...</p>
+                            </div>
+                            <div class="mt-6 flex justify-end">
+                                <button onclick="this.closest('.fixed').remove()" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Close</button>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(modal);
+                    
+                    // Load full email content if available
+                    if (window.loadEmailContent) {
+                        window.loadEmailContent(emailId).then(content => {
+                            const contentDiv = modal.querySelector('.text-gray-700');
+                            if (content) {
+                                contentDiv.innerHTML = content;
+                            } else {
+                                contentDiv.innerHTML = '<p class="text-gray-500">Email content not available in preview</p>';
+                            }
+                        }).catch(err => {
+                            console.error('Error loading email content:', err);
+                            const contentDiv = modal.querySelector('.text-gray-700');
+                            contentDiv.innerHTML = '<p class="text-gray-500">Failed to load email content</p>';
+                        });
+                    }
+                }
+            },
+            
+            selectAllTrashEmails: function(select) {
+                console.log("SAIG Action: selectAllTrashEmails", select);
+                const checkboxes = document.querySelectorAll('.trash-email-checkbox');
+                checkboxes.forEach(cb => cb.checked = select);
+                // Trigger count update if function exists
+                if (window.updateTrashCount) {
+                    window.updateTrashCount();
+                }
+            },
+            
+            updateTrashCount: function() {
+                console.log("SAIG Action: updateTrashCount");
+                const checkboxes = document.querySelectorAll('.trash-email-checkbox');
+                const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+                const totalCount = checkboxes.length;
+                
+                const countDisplay = document.getElementById('trash-count-display');
+                if (countDisplay) {
+                    countDisplay.textContent = `${checkedCount} of ${totalCount}`;
+                }
+                
+                const btn = document.getElementById('move-selected-btn');
+                if (btn) {
+                    if (checkedCount === 0) {
+                        btn.disabled = true;
+                        btn.classList.add('opacity-50', 'cursor-not-allowed');
+                        btn.textContent = 'No Emails Selected';
+                    } else {
+                        btn.disabled = false;
+                        btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                        btn.textContent = `Move ${checkedCount} Email${checkedCount > 1 ? 's' : ''} to Trash`;
+                    }
+                }
+            }
+        };
+        
+        // Also keep these as direct window functions for backward compatibility
+        window.moveSelectedToTrash = window.saigActions.moveSelectedToTrash;
+        window.viewEmailFromPreview = window.saigActions.viewEmailFromPreview;
+        window.selectAllTrashEmails = window.saigActions.selectAllTrashEmails;
+        window.updateTrashCount = window.saigActions.updateTrashCount;
+        
         // Special handler for trash confirmation with selected emails
         window.sendTrashConfirmation = function(selectedEmails) {
             console.log('=== sendTrashConfirmation called ===');
@@ -2572,6 +2701,17 @@
                 // For assistant messages, allow HTML to support draft buttons and formatting
                 const content = message.includes('<div') || message.includes('<button') ? message : `<p class="text-sm">${message}</p>`;
                 messageEl.innerHTML = content;
+                
+                // Execute any script tags that were inserted
+                const scripts = messageEl.querySelectorAll('script');
+                scripts.forEach(script => {
+                    console.log('Executing dynamically inserted script...');
+                    const newScript = document.createElement('script');
+                    newScript.textContent = script.textContent;
+                    document.body.appendChild(newScript);
+                    // Remove the script after execution to clean up
+                    setTimeout(() => document.body.removeChild(newScript), 100);
+                });
                 
                 // Replace onclick attributes with data attributes and attach event listeners
                 const buttons = messageEl.querySelectorAll('button[onclick]');
