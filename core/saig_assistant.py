@@ -968,50 +968,7 @@ NEVER include subject or content when only searching for sender."""
   </div>
   <div class="flex gap-3 justify-end">
     <button data-action="send-message" data-message="Cancel" onclick="sendMessage('Cancel')" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Cancel</button>
-    <button id="move-selected-btn" onclick="(function() {
-      console.log('Button clicked!');
-      const checkboxes = document.querySelectorAll('.trash-email-checkbox:checked');
-      const selectedEmails = Array.from(checkboxes).map(cb => {
-        const emailId = cb.getAttribute('data-email-id');
-        return window.trashEmailList.find(e => e.id === emailId);
-      }).filter(e => e);
-      
-      if (selectedEmails.length === 0) {
-        alert('Please select at least one email to move to trash');
-        return;
-      }
-      
-      console.log('Moving ' + selectedEmails.length + ' emails to trash');
-      
-      // Update the context
-      if (window.saigContext && window.saigContext.pending_delete) {
-        window.saigContext.pending_delete.emails = selectedEmails;
-        console.log('Updated context');
-      }
-      
-      // Try to send the message
-      if (typeof window.sendMessage === 'function') {
-        console.log('Calling sendMessage');
-        window.sendMessage('Move all to trash');
-      } else if (typeof sendMessage === 'function') {
-        console.log('Calling sendMessage (no window)');
-        sendMessage('Move all to trash');
-      } else {
-        console.log('sendMessage not found, trying to submit via input');
-        const input = document.getElementById('chat-input');
-        if (input) {
-          input.value = 'Move all to trash';
-          const form = input.closest('form');
-          if (form) {
-            form.dispatchEvent(new Event('submit'));
-          } else {
-            // Try to find and click the send button
-            const sendBtn = document.querySelector('button[onclick*=sendMessage]');
-            if (sendBtn) sendBtn.click();
-          }
-        }
-      }
-    })()" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move Selected to Trash</button>
+    <button id="move-selected-btn" onclick="window.moveSelectedToTrash()" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move Selected to Trash</button>
   </div>
 </div>
 <script>
@@ -1089,6 +1046,8 @@ window.viewEmailFromPreview = function(emailId) {{
 }}
 
 window.moveSelectedToTrash = function() {{
+  console.log('Move button clicked!');
+  
   // Get all selected email IDs
   const checkboxes = document.querySelectorAll('.trash-email-checkbox:checked');
   const selectedEmails = Array.from(checkboxes).map(cb => {{
@@ -1096,47 +1055,42 @@ window.moveSelectedToTrash = function() {{
     return window.trashEmailList.find(e => e.id === emailId);
   }}).filter(e => e);
   
+  console.log('Found', selectedEmails.length, 'selected emails');
+  
   if (selectedEmails.length === 0) {{
     alert('Please select at least one email to move to trash');
     return;
   }}
   
-  // Store selected emails globally
-  window.selectedTrashEmails = selectedEmails;
-  
-  console.log('=== MOVING SELECTED EMAILS TO TRASH ===');
-  console.log('Selected', selectedEmails.length, 'emails for trash');
-  console.log('Email IDs:', selectedEmails.map(e => e.id));
-  
-  // CRITICAL: Update window.trashEmailList to ONLY contain selected emails
-  // This is what the backend will actually use
-  window.trashEmailList = selectedEmails;
-  
-  // Find the sendMessage button in the main chat and click it with our message
-  // This is a hack but it works around the scope issues
-  const chatInput = document.getElementById('chat-input');
-  const sendButton = document.querySelector('[onclick*="sendMessage"]');
-  
-  if (chatInput) {{
-    // Set the message in the input
-    chatInput.value = 'Move all to trash';
-    
-    // Trigger the send
-    if (typeof window.sendMessage === 'function') {{
-      window.sendMessage('Move all to trash');
-    }} else if (sendButton) {{
-      sendButton.click();
-    }} else {{
-      // Last resort: dispatch a custom event
-      const event = new CustomEvent('sendTrashConfirmation', {{
-        detail: {{ emails: selectedEmails }}
-      }});
-      document.dispatchEvent(event);
-    }}
-  }} else {{
-    console.error('Could not find chat interface to send message');
-    alert('Error: Could not send trash command. Please try typing "Move all to trash" in the chat.');
+  // Update the pending_delete in context to only include selected emails
+  if (window.saigContext && window.saigContext.pending_delete) {{
+    console.log('Updating context from', window.saigContext.pending_delete.emails.length, 'to', selectedEmails.length, 'emails');
+    window.saigContext.pending_delete.emails = selectedEmails;
   }}
+  
+  // Now try to send the message
+  console.log('Attempting to send message...');
+  
+  // Method 1: Direct call if available
+  if (typeof window.sendMessage === 'function') {{
+    console.log('Using window.sendMessage');
+    window.sendMessage('Move all to trash');
+    return;
+  }}
+  
+  // Method 2: Try without window
+  if (typeof sendMessage === 'function') {{
+    console.log('Using sendMessage directly');
+    sendMessage('Move all to trash');
+    return;
+  }}
+  
+  // Method 3: Custom event
+  console.log('Dispatching custom event');
+  const event = new CustomEvent('sendTrashConfirmation', {{
+    detail: {{ emails: selectedEmails }}
+  }});
+  document.dispatchEvent(event);
 }}
 
 // Make sure the trash email list is accessible
