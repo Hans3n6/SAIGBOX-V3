@@ -2163,10 +2163,19 @@
         let saigContext = {};
         
         async function sendMessage(directMessage = null) {
+            console.log('=== sendMessage called ===');
+            console.log('Direct message:', directMessage);
+            
             const input = document.getElementById('chat-input');
             const message = directMessage || input.value.trim();
             
-            if (!message) return;
+            console.log('Message to send:', message);
+            console.log('Current saigContext:', saigContext);
+            
+            if (!message) {
+                console.log('No message, returning');
+                return;
+            }
             
             // Add user message
             addChatMessage(message, 'user');
@@ -2188,7 +2197,8 @@
                 } : {})
             };
             
-            console.log('Sending message with context:', fullContext);
+            console.log('Full context being sent:', JSON.stringify(fullContext, null, 2));
+            console.log('Message being sent:', message);
             
             // Send to SAIG
             try {
@@ -2209,12 +2219,19 @@
                 
                 if (response.ok) {
                     const result = await response.json();
-                    console.log('Received response:', result);
+                    console.log('=== Response received ===');
+                    console.log('Full response:', result);
+                    console.log('Response text length:', result.response?.length);
+                    console.log('Actions taken:', result.actions_taken);
+                    console.log('Context in response:', result.context);
                     
                     // Update SAIG context if provided
                     if (result.context) {
+                        console.log('Updating saigContext with:', result.context);
                         saigContext = result.context;
-                        console.log('Updated context:', saigContext);
+                        console.log('saigContext after update:', saigContext);
+                    } else {
+                        console.log('No context in response');
                     }
                     
                     addChatMessage(result.response, 'assistant');

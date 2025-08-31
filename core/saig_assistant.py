@@ -35,12 +35,18 @@ class SAIGAssistant:
     async def process_message(self, db: Session, user: User, message: str, 
                              context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         try:
+            logger.info(f"=== SAIG process_message ===")
+            logger.info(f"User: {user.email}")
+            logger.info(f"Message: {message}")
+            logger.info(f"Context received: {json.dumps(context, default=str) if context else 'None'}")
+            
             # Save user message to history
             user_msg = ChatHistory(user_id=user.id, role="user", message=message)
             db.add(user_msg)
             
             # Get email context if needed
             email_context = await self._get_email_context(db, user, message, context)
+            logger.info(f"Email context built: {json.dumps(email_context, default=str) if email_context else 'None'}")
             
             # Determine intent
             intent = await self._analyze_intent(message, email_context)
@@ -54,12 +60,20 @@ class SAIGAssistant:
             db.commit()
             
             # Return response with updated context
-            return {
+            result = {
                 "response": response,
                 "actions_taken": actions,
                 "intent": intent,
                 "context": email_context  # Return the context for frontend to maintain state
             }
+            
+            logger.info(f"=== Returning from process_message ===")
+            logger.info(f"Intent: {intent}")
+            logger.info(f"Actions taken: {actions}")
+            logger.info(f"Context being returned: {json.dumps(email_context, default=str) if email_context else 'None'}")
+            logger.info(f"Response length: {len(response)}")
+            
+            return result
             
         except Exception as e:
             logger.error(f"Error processing SAIG message: {e}")
@@ -517,10 +531,16 @@ Return only the fields that are clearly mentioned."""
                            context: Dict[str, Any]) -> tuple:
         """Move email to trash with natural language search and user-friendly confirmation"""
         
+        logger.info(f"=== _delete_email called ===")
+        logger.info(f"Message: {message}")
+        logger.info(f"Context has pending_delete: {'pending_delete' in context}")
+        if 'pending_delete' in context:
+            logger.info(f"Pending delete content: {json.dumps(context['pending_delete'], default=str)}")
+        
         # Check if user is confirming a previous delete request
         if context.get('pending_delete'):
             # Log the confirmation attempt
-            logger.info(f"Checking trash confirmation: '{message}'")
+            logger.info(f"Processing trash confirmation: '{message}'")
             
             # Check for various confirmation messages
             confirmation_phrases = [
@@ -719,6 +739,10 @@ Return only the fields that are clearly mentioned."""
             'emails': emails_to_delete,
             'timestamp': datetime.utcnow().isoformat()
         }
+        
+        logger.info(f"=== Setting pending_delete in context ===")
+        logger.info(f"Number of emails to delete: {len(emails_to_delete)}")
+        logger.info(f"Context after setting pending_delete: {json.dumps(context, default=str)}")
         
         return confirm_msg, ["confirmation_required"]
     
