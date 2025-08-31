@@ -934,7 +934,7 @@ NEVER include subject or content when only searching for sender."""
   </div>
   <div class="flex gap-3 justify-end">
     <button data-action="send-message" data-message="Cancel" onclick="sendMessage('Cancel')" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Cancel</button>
-    <button data-action="send-message" data-message="Yes, move all to trash" onclick="sendMessage('Yes, move all to trash')" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move All to Trash</button>
+    <button data-action="send-message" data-message="Move all to trash" onclick="sendMessage('Move all to trash')" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move All to Trash</button>
   </div>
 </div>"""
         
