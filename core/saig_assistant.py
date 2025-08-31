@@ -1046,55 +1046,55 @@ window.viewEmailFromPreview = function(emailId) {{
 }}
 
 window.moveSelectedToTrash = function() {{
-  console.log('Move button clicked!');
+  console.log("Move button clicked!");
   
   // Get all selected email IDs
-  const checkboxes = document.querySelectorAll('.trash-email-checkbox:checked');
+  const checkboxes = document.querySelectorAll(".trash-email-checkbox:checked");
   const selectedEmails = Array.from(checkboxes).map(cb => {{
-    const emailId = cb.getAttribute('data-email-id');
+    const emailId = cb.getAttribute("data-email-id");
     return window.trashEmailList.find(e => e.id === emailId);
   }}).filter(e => e);
   
-  console.log('Found', selectedEmails.length, 'selected emails');
+  console.log("Found", selectedEmails.length, "selected emails");
   
   if (selectedEmails.length === 0) {{
-    alert('Please select at least one email to move to trash');
+    alert("Please select at least one email to move to trash");
     return;
   }}
   
   // Update the pending_delete in context to only include selected emails
   if (window.saigContext && window.saigContext.pending_delete) {{
-    console.log('Updating context from', window.saigContext.pending_delete.emails.length, 'to', selectedEmails.length, 'emails');
+    console.log("Updating context from", window.saigContext.pending_delete.emails.length, "to", selectedEmails.length, "emails");
     window.saigContext.pending_delete.emails = selectedEmails;
   }}
   
   // Now try to send the message
-  console.log('Attempting to send message...');
+  console.log("Attempting to send message...");
   
   // Method 1: Direct call if available
-  if (typeof window.sendMessage === 'function') {{
-    console.log('Using window.sendMessage');
-    window.sendMessage('Move all to trash');
+  if (typeof window.sendMessage === "function") {{
+    console.log("Using window.sendMessage");
+    window.sendMessage("Move all to trash");
     return;
   }}
   
   // Method 2: Try without window
-  if (typeof sendMessage === 'function') {{
-    console.log('Using sendMessage directly');
-    sendMessage('Move all to trash');
+  if (typeof sendMessage === "function") {{
+    console.log("Using sendMessage directly");
+    sendMessage("Move all to trash");
     return;
   }}
   
   // Method 3: Custom event
-  console.log('Dispatching custom event');
-  const event = new CustomEvent('sendTrashConfirmation', {{
+  console.log("Dispatching custom event");
+  const event = new CustomEvent("sendTrashConfirmation", {{
     detail: {{ emails: selectedEmails }}
   }});
   document.dispatchEvent(event);
 }}
 
 // Make sure the trash email list is accessible
-console.log('Trash preview loaded with ' + window.trashEmailList.length + ' emails');
+console.log("Trash preview loaded with " + window.trashEmailList.length + " emails");
 </script>"""
         
         # Store pending delete in context for confirmation
