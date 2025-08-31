@@ -102,9 +102,9 @@ class GmailService:
                 # Get last sync token if exists (for incremental sync)
                 last_history_id = getattr(user, 'last_history_id', None) if not page_token else None
                 
-                # Fetch messages with better query
-                query = '-in:trash -in:spam'  # Exclude trash and spam
-                # Remove the restrictive filter to fetch ALL emails, not just recent ones
+                # Fetch messages including trash to maintain sync
+                # We'll handle spam exclusion but include trash for proper synchronization
+                query = '-in:spam'  # Exclude only spam, include trash for sync
                 
                 logger.info(f"Calling Gmail API with query: {query}, maxResults: {max_results}")
                 results = service.users().messages().list(
@@ -139,10 +139,25 @@ class GmailService:
                         ).first()
                         
                         if existing:
-                            # Update only if newer
-                            if email_data.get('received_at', datetime.min) > existing.received_at:
-                                for key, value in email_data.items():
+                            # Update email data including trash status
+                            # Check if trash status has changed
+                            is_trashed = 'TRASH' in email_data.get('labels', [])
+                            
+                            # Update deleted_at based on current Gmail trash status
+                            if is_trashed and not existing.deleted_at:
+                                # Email was moved to trash in Gmail
+                                existing.deleted_at = datetime.utcnow()
+                                logger.info(f"Email {existing.gmail_id} moved to trash in Gmail, syncing to SAIGBOX")
+                            elif not is_trashed and existing.deleted_at:
+                                # Email was restored from trash in Gmail
+                                existing.deleted_at = None
+                                logger.info(f"Email {existing.gmail_id} restored from trash in Gmail, syncing to SAIGBOX")
+                            
+                            # Update other fields
+                            for key, value in email_data.items():
+                                if key != 'deleted_at':  # Don't override our logic above
                                     setattr(existing, key, value)
+                            
                             email_obj = existing
                         else:
                             email_obj = Email(user_id=user.id, **email_data)
@@ -241,7 +256,20 @@ class GmailService:
                     Email.user_id == user.id
                 ).first()
                 
-                if not existing:
+                if existing:
+                    # Update trash status for existing emails
+                    is_trashed = 'TRASH' in email_data.get('labels', [])
+                    if is_trashed and not existing.deleted_at:
+                        existing.deleted_at = datetime.utcnow()
+                    elif not is_trashed and existing.deleted_at:
+                        existing.deleted_at = None
+                    
+                    # Update other fields
+                    for key, value in email_data.items():
+                        if key != 'deleted_at':
+                            setattr(existing, key, value)
+                    emails.append(existing)
+                else:
                     email_obj = Email(user_id=user.id, **email_data)
                     db.add(email_obj)
                     emails.append(email_obj)
@@ -263,10 +291,9 @@ class GmailService:
         """Most basic fallback - return existing emails from database"""
         logger.warning("Using basic fallback - returning cached emails")
         
-        # Return most recent emails from database
+        # Return most recent emails from database (including trashed for sync purposes)
         emails = db.query(Email).filter(
-            Email.user_id == user.id,
-            Email.deleted_at == None
+            Email.user_id == user.id
         ).order_by(Email.received_at.desc()).limit(50).all()
         
         return {
@@ -287,6 +314,11 @@ class GmailService:
         timestamp = int(message.get('internalDate', 0)) / 1000
         received_at = datetime.fromtimestamp(timestamp) if timestamp else datetime.now()
         
+        # Check if email is trashed
+        labels = message.get('labelIds', [])
+        is_trashed = 'TRASH' in labels
+        deleted_at = datetime.utcnow() if is_trashed else None
+        
         return {
             'gmail_id': message['id'],
             'thread_id': message.get('threadId'),
@@ -294,8 +326,9 @@ class GmailService:
             'sender': headers.get('From', 'Unknown'),
             'snippet': message.get('snippet', ''),
             'received_at': received_at,
-            'is_read': 'UNREAD' not in message.get('labelIds', []),
-            'labels': message.get('labelIds', [])
+            'is_read': 'UNREAD' not in labels,
+            'labels': labels,
+            'deleted_at': deleted_at  # Add deleted_at for minimal parsing too
         }
     
     def _parse_email(self, message: Dict[str, Any]) -> Dict[str, Any]:
@@ -315,10 +348,14 @@ class GmailService:
         labels = message.get('labelIds', [])
         is_read = 'UNREAD' not in labels
         is_starred = 'STARRED' in labels
+        is_trashed = 'TRASH' in labels  # Check if email is in Gmail trash
         
         # Parse timestamp
         timestamp = int(message.get('internalDate', 0)) / 1000
         received_at = datetime.fromtimestamp(timestamp) if timestamp else None
+        
+        # Set deleted_at if email is in trash
+        deleted_at = datetime.utcnow() if is_trashed else None
         
         return {
             'gmail_id': message['id'],
@@ -337,6 +374,7 @@ class GmailService:
             'is_starred': is_starred,
             'has_attachments': len(attachments) > 0,
             'attachments': attachments,
+            'deleted_at': deleted_at,  # Add deleted_at field
             'received_at': received_at
         }
     

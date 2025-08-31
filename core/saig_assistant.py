@@ -440,7 +440,8 @@ Return as JSON with keys: title, description, priority (high/medium/low), due_da
         """
         
         # Extract search criteria from description
-        prompt = f"""Extract email search criteria from this description: {description!r}
+        # Use format() to avoid issues with braces in the description
+        prompt = """Extract email search criteria from this description: {desc}
         
 IMPORTANT RULES:
 1. If the description mentions "from [sender]" or "emails from [sender]" or "all emails from [sender]", 
@@ -468,13 +469,62 @@ If the description mentions "all" or doesn't specify a limit, set count to null.
 If a specific number is mentioned (e.g., "last 20", "first 10"), set count to that number.
 Return only the fields that are clearly mentioned.
 NEVER include subject or content when only searching for sender."""
+        # Replace the placeholder with the description safely
+        prompt = prompt.replace("{desc}", repr(description))
 
         try:
             criteria_json = await self._call_anthropic(prompt, max_tokens=200, temperature=0.3)
-            criteria = json.loads(criteria_json.strip())
             
-            logger.info(f"=== Email Search Criteria ===")
-            logger.info(f"Description: {description!r}")
+            # Check if this is an error response
+            if criteria_json.startswith("Error"):
+                logger.warning(f"API error response: {criteria_json}")
+                # Fallback: try to extract sender from the description directly
+                criteria = {}
+                description_lower = description.lower()
+                if 'from' in description_lower:
+                    # Extract sender after "from"
+                    parts = description_lower.split('from')
+                    if len(parts) > 1:
+                        sender_part = parts[1].strip()
+                        # Remove quotes and get first word/email
+                        sender = sender_part.split()[0].strip('"\'{}')
+                        criteria['sender'] = sender
+                        logger.info(f"Fallback: extracted sender '{sender}' from description")
+            else:
+                # Try to parse the JSON response
+                try:
+                    parsed = json.loads(criteria_json.strip())
+                    # Check if the parsed result is a dictionary
+                    if isinstance(parsed, dict):
+                        criteria = parsed
+                    else:
+                        # API returned a non-dict (like a plain string)
+                        logger.warning(f"API returned non-dict JSON: {parsed!r} (type: {type(parsed)})")
+                        # Use fallback extraction
+                        criteria = {}
+                        description_lower = description.lower()
+                        if 'from' in description_lower:
+                            parts = description_lower.split('from')
+                            if len(parts) > 1:
+                                sender_part = parts[1].strip()
+                                sender = sender_part.split()[0].strip('"\'{}')
+                                criteria['sender'] = sender
+                                logger.info(f"Fallback: extracted sender '{sender}' from description")
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.warning(f"Failed to parse AI response as JSON: {e}")
+                    # Fallback extraction
+                    criteria = {}
+                    description_lower = description.lower()
+                    if 'from' in description_lower:
+                        parts = description_lower.split('from')
+                        if len(parts) > 1:
+                            sender_part = parts[1].strip()
+                            sender = sender_part.split()[0].strip('"\'{}')
+                            criteria['sender'] = sender
+                            logger.info(f"Fallback: extracted sender '{sender}' from description")
+            
+            logger.info("=== Email Search Criteria ===")
+            logger.info("Description: %r", description)
             logger.info("Extracted criteria: %s", json.dumps(criteria, indent=2))
             
             # Build query
@@ -486,7 +536,7 @@ NEVER include subject or content when only searching for sender."""
             # Apply filters based on criteria
             if criteria.get('sender'):
                 sender_term = f"%{criteria['sender']}%"
-                logger.info(f"Searching for sender: {sender_term!r} (ONLY in sender fields)")
+                logger.info("Searching for sender: %r (ONLY in sender fields)", sender_term)
                 query = query.filter(
                     or_(
                         Email.sender.ilike(sender_term),
@@ -552,9 +602,10 @@ NEVER include subject or content when only searching for sender."""
             
             logger.info(f"Search found {len(emails)} emails")
             if emails:
-                logger.info(f"Sample results (first 3):")
+                logger.info("Sample results (first 3):")
                 for i, email in enumerate(emails[:3]):
-                    logger.info(f"  {i+1}. From: {email.sender_name or email.sender!r} | Subject: {email.subject!r}")
+                    logger.info("  %d. From: %r | Subject: %r", 
+                               i+1, email.sender_name or email.sender, email.subject)
             
             # Convert to dict format
             return [
@@ -570,7 +621,8 @@ NEVER include subject or content when only searching for sender."""
             ]
             
         except Exception as e:
-            logger.error(f"Error finding emails by description: {e}")
+            logger.error(f"Error finding emails by description: {e}", exc_info=True)
+            # Don't raise the exception, just return empty list
             return []
     
     async def _delete_email(self, db: Session, user: User, message: str, 
