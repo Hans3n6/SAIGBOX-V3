@@ -2412,21 +2412,32 @@
             moveSelectedToTrash: function() {
                 console.log("SAIG Action: moveSelectedToTrash called");
                 
-                // Get all selected email IDs - try both class names
-                let checkboxes = document.querySelectorAll(".trash-email-checkbox:checked");
+                // Get all selected email IDs - try both class names (check the more common one first)
+                let checkboxes = document.querySelectorAll(".trash-checkbox:checked");
                 if (checkboxes.length === 0) {
-                    checkboxes = document.querySelectorAll(".trash-checkbox:checked");
+                    checkboxes = document.querySelectorAll(".trash-email-checkbox:checked");
                 }
+                
+                console.log("Found", checkboxes.length, "checked checkboxes");
+                
                 const selectedEmails = Array.from(checkboxes).map(cb => {
                     const emailId = cb.getAttribute("data-email-id");
+                    console.log("Processing checkbox with email ID:", emailId);
+                    
                     // Try to find email in window.trashEmailList if it exists
-                    if (window.trashEmailList) {
-                        return window.trashEmailList.find(e => e.id === emailId);
+                    if (window.trashEmailList && Array.isArray(window.trashEmailList)) {
+                        const email = window.trashEmailList.find(e => e.id === emailId);
+                        if (email) {
+                            console.log("Found email in trashEmailList:", email);
+                            return email;
+                        }
                     }
+                    // Fallback: just return the ID
                     return { id: emailId };
-                }).filter(e => e);
+                }).filter(e => e && e.id);
                 
                 console.log("Found", selectedEmails.length, "selected emails");
+                console.log("Selected email IDs:", selectedEmails.map(e => e.id));
                 
                 if (selectedEmails.length === 0) {
                     alert("Please select at least one email to move to trash");
@@ -2502,11 +2513,13 @@
             
             selectAllTrashEmails: function(select) {
                 console.log("SAIG Action: selectAllTrashEmails", select);
-                // Try both class names for compatibility
-                let checkboxes = document.querySelectorAll('.trash-email-checkbox');
+                // Try both class names for compatibility (check the more common one first)
+                let checkboxes = document.querySelectorAll('.trash-checkbox');
                 if (checkboxes.length === 0) {
-                    checkboxes = document.querySelectorAll('.trash-checkbox');
+                    checkboxes = document.querySelectorAll('.trash-email-checkbox');
                 }
+                console.log("selectAllTrashEmails: Found", checkboxes.length, "checkboxes to", select ? "select" : "deselect");
+                
                 checkboxes.forEach(cb => cb.checked = select);
                 // Trigger count update
                 window.saigActions.updateTrashCount();
@@ -2518,13 +2531,15 @@
             
             updateTrashCount: function() {
                 console.log("SAIG Action: updateTrashCount");
-                // Try both class names for compatibility
-                let checkboxes = document.querySelectorAll('.trash-email-checkbox');
+                // Try both class names for compatibility (check the more common one first)
+                let checkboxes = document.querySelectorAll('.trash-checkbox');
                 if (checkboxes.length === 0) {
-                    checkboxes = document.querySelectorAll('.trash-checkbox');
+                    checkboxes = document.querySelectorAll('.trash-email-checkbox');
                 }
                 const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
                 const totalCount = checkboxes.length;
+                
+                console.log("updateTrashCount: Found", totalCount, "total checkboxes,", checkedCount, "checked");
                 
                 const countDisplay = document.getElementById('trash-count-display');
                 if (countDisplay) {
