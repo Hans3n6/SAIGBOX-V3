@@ -674,7 +674,8 @@ NEVER include subject or content when only searching for sender."""
             confirmation_phrases = [
                 'yes', 'confirm', 'proceed', 'go ahead', 'sure', 'ok',
                 'move to trash', 'move all to trash', 'yes, move', 'yes move',
-                'move them', 'delete', 'trash them', 'yes, move all', 'yes move all to trash'
+                'move them', 'delete', 'trash them', 'yes, move all', 'yes move all to trash',
+                'move selected to trash', 'selected email', 'selected emails to trash'
             ]
             message_lower = message.lower().strip().replace(',', '').replace('.', '')
             
@@ -682,8 +683,14 @@ NEVER include subject or content when only searching for sender."""
             logger.info(f"Checking confirmation - Original message: '{message}'")
             logger.info(f"Checking confirmation - Normalized message: '{message_lower}'")
             
-            # Check if message contains any confirmation phrase
+            # Check if message contains any confirmation phrase or pattern for selected emails
             is_confirmed = any(phrase in message_lower for phrase in confirmation_phrases)
+            
+            # Also check for the pattern "Move X selected email(s) to trash"
+            if not is_confirmed:
+                import re
+                selected_pattern = r'move \d+ selected email[s]? to trash'
+                is_confirmed = bool(re.search(selected_pattern, message_lower))
             
             # Also check for exact matches
             if not is_confirmed:
@@ -921,32 +928,146 @@ NEVER include subject or content when only searching for sender."""
   </div>
 </div>"""
         else:
-            # Multiple emails - show ALL emails in scrollable list
+            # Multiple emails - show ALL emails in scrollable list with checkboxes
             email_items_html = ""
             for i, email in enumerate(emails_to_delete):
+                # Generate unique ID for checkbox
+                checkbox_id = f"trash-email-{i}"
                 email_items_html += f"""
-    <div class="bg-white p-2 mb-1.5 rounded border border-gray-200" style="overflow: hidden;">
-      <div class="text-sm font-medium text-gray-900 truncate">{email['subject'] or 'No Subject'}</div>
-      <div class="text-xs text-gray-500 truncate">From: {email['sender']}</div>
+    <div class="bg-white p-2 mb-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors" style="overflow: hidden;">
+      <div class="flex items-start gap-2">
+        <input type="checkbox" id="{checkbox_id}" data-email-id="{email['id']}" checked 
+               class="mt-1 trash-email-checkbox" 
+               onchange="updateTrashCount()">
+        <div class="flex-1 cursor-pointer" onclick="viewEmailFromPreview('{email['id']}')">
+          <div class="text-sm font-medium text-gray-900 truncate">{email['subject'] or 'No Subject'}</div>
+          <div class="text-xs text-gray-500 truncate">From: {email['sender']}</div>
+          <div class="text-xs text-gray-400 truncate">Date: {email['date'][:10] if email.get('date') else 'Unknown'}</div>
+        </div>
+      </div>
     </div>"""
             
             confirm_msg = f"""<div class="p-4 border border-amber-300 rounded-lg bg-amber-50" style="width: 100%; box-sizing: border-box;">
-  <div class="text-base font-semibold text-gray-900 mb-3">🗑️ Move {len(emails_to_delete)} Email{'s' if len(emails_to_delete) > 1 else ''} to Trash?</div>
-  <div class="text-sm text-gray-600 mb-3">These emails will be moved to trash:</div>
+  <div class="text-base font-semibold text-gray-900 mb-3">🗑️ Move Emails to Trash?</div>
+  <div class="text-sm text-gray-600 mb-2">
+    <span id="trash-count-display">{len(emails_to_delete)} of {len(emails_to_delete)}</span> emails selected
+  </div>
+  <div class="mb-3 flex gap-2">
+    <button onclick="selectAllTrashEmails(true)" class="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50">Select All</button>
+    <button onclick="selectAllTrashEmails(false)" class="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50">Deselect All</button>
+  </div>
   <div class="bg-gray-50 p-2 rounded border border-gray-200" style="max-height: 250px; overflow-y: auto; overflow-x: hidden; position: relative;">
     <div style="position: sticky; top: 0; background: linear-gradient(to bottom, #f9fafb 0%, #f9fafb 90%, transparent 100%); z-index: 1; height: 10px; margin-bottom: -10px;"></div>
 {email_items_html}
     <div style="position: sticky; bottom: 0; background: linear-gradient(to top, #f9fafb 0%, #f9fafb 90%, transparent 100%); z-index: 1; height: 10px; margin-top: -10px;"></div>
   </div>
   <div class="text-sm text-amber-700 mb-4 mt-3">
-    <div>📧 All {len(emails_to_delete)} emails shown above will be moved to trash</div>
+    <div>📧 Only selected emails will be moved to trash</div>
     <div>↩️ You can restore them within 30 days</div>
+    <div class="text-xs text-gray-500 mt-1">💡 Click on an email to view it</div>
   </div>
   <div class="flex gap-3 justify-end">
     <button data-action="send-message" data-message="Cancel" onclick="sendMessage('Cancel')" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Cancel</button>
-    <button data-action="send-message" data-message="Move all to trash" onclick="sendMessage('Move all to trash')" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move All to Trash</button>
+    <button id="move-selected-btn" data-action="send-message" data-message="Move selected to trash" onclick="moveSelectedToTrash()" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move Selected to Trash</button>
   </div>
-</div>"""
+</div>
+<script>
+// Track original email list
+window.trashEmailList = {json.dumps(emails_to_delete, default=str)};
+
+function updateTrashCount() {{
+  const checkboxes = document.querySelectorAll('.trash-email-checkbox');
+  const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+  const totalCount = checkboxes.length;
+  
+  document.getElementById('trash-count-display').textContent = `${{checkedCount}} of ${{totalCount}}`;
+  
+  const btn = document.getElementById('move-selected-btn');
+  if (checkedCount === 0) {{
+    btn.disabled = true;
+    btn.classList.add('opacity-50', 'cursor-not-allowed');
+    btn.textContent = 'No Emails Selected';
+  }} else {{
+    btn.disabled = false;
+    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    btn.textContent = `Move ${{checkedCount}} Email${{checkedCount > 1 ? 's' : ''}} to Trash`;
+  }}
+}}
+
+function selectAllTrashEmails(select) {{
+  const checkboxes = document.querySelectorAll('.trash-email-checkbox');
+  checkboxes.forEach(cb => cb.checked = select);
+  updateTrashCount();
+}}
+
+function viewEmailFromPreview(emailId) {{
+  // Find the email in the trash list
+  const email = window.trashEmailList.find(e => e.id === emailId);
+  if (email) {{
+    // Create a modal to show the email
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50';
+    modal.innerHTML = `
+      <div class="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6">
+        <div class="flex justify-between items-start mb-4">
+          <h3 class="text-lg font-semibold text-gray-900">${{email.subject || 'No Subject'}}</h3>
+          <button onclick="this.closest('.fixed').remove()" class="text-gray-400 hover:text-gray-600">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="text-sm text-gray-600 mb-4">
+          <div>From: ${{email.sender}}</div>
+          <div>Date: ${{email.date || 'Unknown'}}</div>
+        </div>
+        <div class="text-sm text-gray-700">
+          <p>Loading email content...</p>
+        </div>
+        <div class="mt-6 flex justify-end">
+          <button onclick="this.closest('.fixed').remove()" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Close</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    
+    // Try to load full email content if available
+    if (window.loadEmailContent) {{
+      window.loadEmailContent(emailId).then(content => {{
+        const contentDiv = modal.querySelector('.text-gray-700');
+        if (content) {{
+          contentDiv.innerHTML = content;
+        }} else {{
+          contentDiv.innerHTML = '<p class="text-gray-500">Email content not available in preview</p>';
+        }}
+      }});
+    }}
+  }}
+}}
+
+function moveSelectedToTrash() {{
+  // Get all selected email IDs
+  const checkboxes = document.querySelectorAll('.trash-email-checkbox:checked');
+  const selectedEmails = Array.from(checkboxes).map(cb => {{
+    const emailId = cb.getAttribute('data-email-id');
+    return window.trashEmailList.find(e => e.id === emailId);
+  }}).filter(e => e);
+  
+  if (selectedEmails.length === 0) {{
+    alert('Please select at least one email to move to trash');
+    return;
+  }}
+  
+  // Update the context with only selected emails
+  if (window.saigContext) {{
+    window.saigContext.pending_delete.emails = selectedEmails;
+  }}
+  
+  // Send the confirmation message
+  const message = `Move ${{selectedEmails.length}} selected email${{selectedEmails.length > 1 ? 's' : ''}} to trash`;
+  sendMessage(message);
+}}
+</script>"""
         
         # Store pending delete in context for confirmation
         # CRITICAL: These are the EXACT emails that will be deleted

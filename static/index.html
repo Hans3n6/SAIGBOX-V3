@@ -1641,6 +1641,85 @@
             }
         }
         
+        // Load email content for preview modal
+        window.loadEmailContent = async function(emailId) {
+            try {
+                // First try to find the email in allLoadedEmails
+                const email = allLoadedEmails.find(e => e.id === emailId);
+                if (email) {
+                    // Return formatted HTML content
+                    if (email.body_html) {
+                        // Sanitize HTML content
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = email.body_html;
+                        
+                        // Remove script tags and event handlers
+                        const scripts = tempDiv.querySelectorAll('script');
+                        scripts.forEach(script => script.remove());
+                        
+                        const allElements = tempDiv.querySelectorAll('*');
+                        for (let el of allElements) {
+                            for (let attr of [...el.attributes]) {
+                                if (attr.name.startsWith('on')) {
+                                    el.removeAttribute(attr.name);
+                                }
+                            }
+                        }
+                        
+                        return tempDiv.innerHTML;
+                    } else if (email.body_text) {
+                        // Convert plain text to HTML
+                        const escapedText = email.body_text
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/"/g, '&quot;')
+                            .replace(/'/g, '&#039;')
+                            .replace(/\n/g, '<br>');
+                        return `<p>${escapedText}</p>`;
+                    } else if (email.snippet) {
+                        // Use snippet as fallback
+                        const escapedSnippet = email.snippet
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/"/g, '&quot;')
+                            .replace(/'/g, '&#039;');
+                        return `<p>${escapedSnippet}</p>`;
+                    }
+                }
+                
+                // If not found locally, fetch from API
+                const response = await fetch(`/api/emails/${emailId}`, {
+                    headers: authToken !== 'session' ? {
+                        'Authorization': `Bearer ${authToken}`
+                    } : {},
+                    credentials: 'include'
+                });
+                
+                if (response.ok) {
+                    const emailData = await response.json();
+                    if (emailData.body_html) {
+                        return emailData.body_html;
+                    } else if (emailData.body_text) {
+                        const escapedText = emailData.body_text
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/"/g, '&quot;')
+                            .replace(/'/g, '&#039;')
+                            .replace(/\n/g, '<br>');
+                        return `<p>${escapedText}</p>`;
+                    }
+                }
+                
+                return null;
+            } catch (error) {
+                console.error('Error loading email content:', error);
+                return null;
+            }
+        }
+        
         async function toggleStar(emailId) {
             try {
                 const response = await fetch(`/api/emails/${emailId}/star`, {
