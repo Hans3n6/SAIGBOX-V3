@@ -558,6 +558,18 @@ NEVER include subject or content when only searching for sender."""
             if criteria.get('sender'):
                 sender_term = f"%{criteria['sender']}%"
                 logger.info("Searching for sender: %r (ONLY in sender fields)", sender_term)
+                
+                # First, let's see what senders exist in the database for debugging
+                sample_senders = db.query(Email.sender_name, Email.sender).filter(
+                    Email.user_id == user.id,
+                    Email.deleted_at.is_(None),
+                    or_(
+                        Email.sender.ilike(sender_term),
+                        Email.sender_name.ilike(sender_term)
+                    )
+                ).limit(5).all()
+                logger.info(f"Sample matching senders found: {[(s[0] or s[1]) for s in sample_senders]}")
+                
                 query = query.filter(
                     or_(
                         Email.sender.ilike(sender_term),
@@ -630,8 +642,8 @@ NEVER include subject or content when only searching for sender."""
                     logger.info("  %d. From: %r | Subject: %r", 
                                i+1, email.sender_name or email.sender, email.subject)
             
-            # Convert to dict format
-            return [
+            # Convert to dict format - THESE EXACT EMAILS WILL BE SHOWN AND DELETED
+            result = [
                 {
                     'id': e.id,
                     'gmail_id': e.gmail_id,
@@ -642,6 +654,16 @@ NEVER include subject or content when only searching for sender."""
                 }
                 for e in emails
             ]
+            
+            # Log for verification
+            logger.info(f"=== EMAILS TO BE SHOWN IN PREVIEW AND DELETED ===")
+            logger.info(f"Total count: {len(result)}")
+            if result:
+                logger.info(f"Email IDs: {[r['id'] for r in result[:10]]}...")
+                logger.info(f"Senders: {list(set([r['sender'] for r in result]))}")
+                logger.info(f"First 5 subjects: {[r['subject'] for r in result[:5]]}")
+            
+            return result
             
         except Exception as e:
             logger.error(f"Error finding emails by description: {e}", exc_info=True)
@@ -707,6 +729,18 @@ NEVER include subject or content when only searching for sender."""
                 logger.info(f"=== EXECUTING TRASH ACTION (VALIDATED) ====")
                 logger.info(f"Processing trash request for {len(pending['emails'])} emails")
                 logger.info(f"User confirmed with message: {message!r}")
+                
+                # Verify the hash to ensure consistency
+                if pending.get('hash'):
+                    import hashlib
+                    current_hash = hashlib.sha256(''.join(sorted([str(e['id']) for e in pending['emails']])).encode()).hexdigest()[:8]
+                    logger.info(f"Email list hash verification - Original: {pending.get('hash')} | Current: {current_hash}")
+                    if pending.get('hash') != current_hash:
+                        logger.warning("⚠️ Email list has been modified since preview!")
+                
+                # Log which emails are being deleted
+                logger.info(f"Deleting emails from senders: {list(set([e.get('sender', 'Unknown') for e in pending['emails']]))}")
+                logger.info(f"First 5 email subjects being deleted: {[e.get('subject', 'No Subject') for e in pending['emails'][:5]]}")
                 
                 # Validate email list
                 if not pending.get('emails') or len(pending['emails']) == 0:
@@ -1128,7 +1162,14 @@ setTimeout(function() {{
         logger.info(f"Number of emails to delete: {len(emails_to_delete)}")
         logger.info(f"Email IDs to be deleted: {[e['id'] for e in emails_to_delete][:10]}...")
         logger.info(f"Email subjects to be deleted: {[e['subject'] for e in emails_to_delete][:5]}...")
+        logger.info(f"Email senders shown in preview: {list(set([e['sender'] for e in emails_to_delete]))}")
         logger.info("Context after setting pending_delete: %s...", json.dumps(context, default=str)[:500])
+        
+        # Create a hash of the email IDs to verify consistency
+        import hashlib
+        email_ids_hash = hashlib.sha256(''.join(sorted([str(e['id']) for e in emails_to_delete])).encode()).hexdigest()[:8]
+        context['pending_delete']['hash'] = email_ids_hash
+        logger.info(f"Email list hash for verification: {email_ids_hash}")
         
         return confirm_msg, ["confirmation_required"]
     
