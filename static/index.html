@@ -94,9 +94,15 @@
             overflow-x: hidden;
             width: 100%;
         }
-        .email-item {
+        .email-item-card {
             overflow-x: hidden;
             word-wrap: break-word;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        /* Ensure email content doesn't overflow */
+        .email-item-card .truncate {
+            max-width: 100%;
         }
         .rotate-180 {
             transform: rotate(180deg);
@@ -1389,6 +1395,8 @@
                 emailEl.dataset.emailId = email.id;
                 emailEl.className = `email-item-card p-4 cursor-pointer ${!email.is_read ? 'bg-blue-50' : ''} ${email.is_urgent ? 'urgent-email' : ''}`;
                 emailEl.style.overflowX = 'hidden';
+                emailEl.style.width = '100%';
+                emailEl.style.boxSizing = 'border-box';
                 emailEl.innerHTML = `
                     <div class="flex items-start">
                         ${email.is_urgent ? '<i class="fas fa-exclamation-circle urgent-indicator mt-1"></i>' : ''}
@@ -1429,7 +1437,7 @@
                 };
                 
                 return `
-                <div data-email-id="${escapeHtml(email.id)}" class="email-item-card p-4 cursor-pointer ${!email.is_read ? 'bg-blue-50' : ''} ${email.is_urgent ? 'urgent-email' : ''}" style="overflow-x: hidden;">
+                <div data-email-id="${escapeHtml(email.id)}" class="email-item-card p-4 cursor-pointer ${!email.is_read ? 'bg-blue-50' : ''} ${email.is_urgent ? 'urgent-email' : ''}" style="overflow-x: hidden; width: 100%; box-sizing: border-box;">
                     <div class="flex items-start">
                         ${email.is_urgent ? '<i class="fas fa-exclamation-circle urgent-indicator mt-1"></i>' : ''}
                         <div class="flex-1 min-w-0">
@@ -1656,6 +1664,9 @@
                 });
                 
                 if (response.ok) {
+                    // Show success notification
+                    showNotification('Email moved to trash successfully', 'success');
+                    
                     // Remove from all loaded emails
                     allLoadedEmails = allLoadedEmails.filter(e => e.id !== emailId);
                     emails = [...allLoadedEmails];
@@ -2178,6 +2189,22 @@
                 if (response.ok) {
                     const result = await response.json();
                     addChatMessage(result.response, 'assistant');
+                    
+                    // Check if the response indicates trash action was completed
+                    if (result.actions_taken && result.actions_taken.includes('emails_moved_to_trash')) {
+                        // Close the email detail view if open
+                        const detailContainer = document.getElementById('email-detail-container');
+                        if (detailContainer) {
+                            detailContainer.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">Select an email to view</div>';
+                        }
+                        selectedEmailId = null;
+                        
+                        // Reload the email list
+                        await loadEmails();
+                        
+                        // Show notification
+                        showNotification('Emails moved to trash successfully', 'success');
+                    }
                 }
             } catch (error) {
                 console.error('Error sending message:', error);
@@ -2236,6 +2263,22 @@
                     aiMsgEl.className = 'bg-white rounded-lg p-4 shadow max-w-lg mb-4';
                     aiMsgEl.innerHTML = `<p class="text-gray-700">${data.response}</p>`;
                     messageContainer.appendChild(aiMsgEl);
+                    
+                    // Check if the response indicates trash action was completed
+                    if (data.actions_taken && data.actions_taken.includes('emails_moved_to_trash')) {
+                        // Close the email detail view if open
+                        const detailContainer = document.getElementById('email-detail-container');
+                        if (detailContainer) {
+                            detailContainer.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">Select an email to view</div>';
+                        }
+                        selectedEmailId = null;
+                        
+                        // Reload the email list
+                        await loadEmails();
+                        
+                        // Show notification
+                        showNotification('Emails moved to trash successfully', 'success');
+                    }
                     
                     // Scroll to bottom
                     messagesEl.scrollTop = messagesEl.scrollHeight;
