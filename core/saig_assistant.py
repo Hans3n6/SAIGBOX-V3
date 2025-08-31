@@ -968,7 +968,50 @@ NEVER include subject or content when only searching for sender."""
   </div>
   <div class="flex gap-3 justify-end">
     <button data-action="send-message" data-message="Cancel" onclick="sendMessage('Cancel')" class="px-4 py-2 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50">Cancel</button>
-    <button id="move-selected-btn" data-action="send-message" data-message="Move selected to trash" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move Selected to Trash</button>
+    <button id="move-selected-btn" onclick="(function() {
+      console.log('Button clicked!');
+      const checkboxes = document.querySelectorAll('.trash-email-checkbox:checked');
+      const selectedEmails = Array.from(checkboxes).map(cb => {
+        const emailId = cb.getAttribute('data-email-id');
+        return window.trashEmailList.find(e => e.id === emailId);
+      }).filter(e => e);
+      
+      if (selectedEmails.length === 0) {
+        alert('Please select at least one email to move to trash');
+        return;
+      }
+      
+      console.log('Moving ' + selectedEmails.length + ' emails to trash');
+      
+      // Update the context
+      if (window.saigContext && window.saigContext.pending_delete) {
+        window.saigContext.pending_delete.emails = selectedEmails;
+        console.log('Updated context');
+      }
+      
+      // Try to send the message
+      if (typeof window.sendMessage === 'function') {
+        console.log('Calling sendMessage');
+        window.sendMessage('Move all to trash');
+      } else if (typeof sendMessage === 'function') {
+        console.log('Calling sendMessage (no window)');
+        sendMessage('Move all to trash');
+      } else {
+        console.log('sendMessage not found, trying to submit via input');
+        const input = document.getElementById('chat-input');
+        if (input) {
+          input.value = 'Move all to trash';
+          const form = input.closest('form');
+          if (form) {
+            form.dispatchEvent(new Event('submit'));
+          } else {
+            // Try to find and click the send button
+            const sendBtn = document.querySelector('button[onclick*=sendMessage]');
+            if (sendBtn) sendBtn.click();
+          }
+        }
+      }
+    })()" class="px-4 py-2 text-sm rounded text-white bg-red-500 hover:bg-red-600">Move Selected to Trash</button>
   </div>
 </div>
 <script>
@@ -1096,28 +1139,8 @@ window.moveSelectedToTrash = function() {{
   }}
 }}
 
-// Add event listener for the move button after functions are defined
-document.addEventListener('DOMContentLoaded', function() {{
-  const moveBtn = document.getElementById('move-selected-btn');
-  if (moveBtn) {{
-    moveBtn.addEventListener('click', function(e) {{
-      e.preventDefault();
-      window.moveSelectedToTrash();
-    }});
-  }}
-}});
-
-// Also try to add it immediately in case DOM is already loaded
-setTimeout(function() {{
-  const moveBtn = document.getElementById('move-selected-btn');
-  if (moveBtn && !moveBtn.hasAttribute('data-listener-added')) {{
-    moveBtn.setAttribute('data-listener-added', 'true');
-    moveBtn.addEventListener('click', function(e) {{
-      e.preventDefault();
-      window.moveSelectedToTrash();
-    }});
-  }}
-}}, 100);
+// Make sure the trash email list is accessible
+console.log('Trash preview loaded with ' + window.trashEmailList.length + ' emails');
 </script>"""
         
         # Store pending delete in context for confirmation
