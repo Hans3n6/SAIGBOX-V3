@@ -298,7 +298,7 @@ Return only the intent name, nothing else."""
     
     async def _search_emails(self, db: Session, user: User, message: str) -> tuple:
         # Extract search query
-        prompt = f"""Extract the search query from this message: "{message}"
+        prompt = f"""Extract the search query from this message: {message!r}
 Return only the search terms, nothing else."""
         
         try:
@@ -379,7 +379,7 @@ Body: {email['body'][:1000]}"""
     async def _create_action_item(self, db: Session, user: User, message: str, 
                                  context: Dict[str, Any]) -> tuple:
         # Extract action item details from message
-        prompt = f"""Extract action item details from this message: "{message}"
+        prompt = f"""Extract action item details from this message: {message!r}
 Return as JSON with keys: title, description, priority (high/medium/low), due_date (ISO format or null)"""
         
         try:
@@ -848,7 +848,7 @@ NEVER include subject or content when only searching for sender."""
         """Move emails to a specific folder/label with natural language support"""
         
         # Extract folder name and email description from message
-        prompt = f"""Extract information from this message about moving emails: "{message}"
+        prompt = f"""Extract information from this message about moving emails: {message!r}
         
 Return as JSON with:
 - folder_name: the target folder/label name
@@ -921,7 +921,7 @@ If no specific emails are mentioned, set email_description to null."""
     async def _create_folder(self, db: Session, user: User, message: str) -> tuple:
         """Create a new folder/label"""
         # Extract folder name from message
-        prompt = f"""Extract the folder/label name to create from this message: "{message}"
+        prompt = f"""Extract the folder/label name to create from this message: {message!r}
 Return only the folder name, nothing else."""
         
         try:
@@ -982,7 +982,7 @@ Keep your response concise and helpful."""
     
     async def _compose_email(self, db: Session, user: User, message: str, 
                             context: Dict[str, Any]) -> tuple:
-        prompt = f"""Extract email composition details from this message: "{message}"
+        prompt = f"""Extract email composition details from this message: {message!r}
 
 Extract the following information as JSON:
 - recipient: email address (required)
