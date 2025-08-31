@@ -38,7 +38,7 @@ class SAIGAssistant:
             logger.info(f"=== SAIG process_message ===")
             logger.info(f"User: {user.email}")
             logger.info(f"Message: {message}")
-            logger.info(f"Context received: {json.dumps(context, default=str) if context else 'None'}")
+            logger.info("Context received: %s", json.dumps(context, default=str) if context else 'None')
             
             # Save user message to history
             user_msg = ChatHistory(user_id=user.id, role="user", message=message)
@@ -46,7 +46,7 @@ class SAIGAssistant:
             
             # Get email context if needed
             email_context = await self._get_email_context(db, user, message, context)
-            logger.info(f"Email context built: {json.dumps(email_context, default=str) if email_context else 'None'}")
+            logger.info("Email context built: %s", json.dumps(email_context, default=str) if email_context else 'None')
             
             # Determine intent
             intent = await self._analyze_intent(message, email_context)
@@ -70,13 +70,15 @@ class SAIGAssistant:
             logger.info(f"=== Returning from process_message ===")
             logger.info(f"Intent: {intent}")
             logger.info(f"Actions taken: {actions}")
-            logger.info(f"Context being returned: {json.dumps(email_context, default=str) if email_context else 'None'}")
+            logger.info("Context being returned: %s", json.dumps(email_context, default=str) if email_context else 'None')
             logger.info(f"Response length: {len(response)}")
             
             return result
             
         except Exception as e:
+            import traceback
             logger.error(f"Error processing SAIG message: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return {
                 "response": f"I encountered an error: {str(e)}. Please try again.",
                 "actions_taken": [],
@@ -471,7 +473,7 @@ NEVER include subject or content when only searching for sender."""
             
             logger.info(f"=== Email Search Criteria ===")
             logger.info(f"Description: {description!r}")
-            logger.info(f"Extracted criteria: {json.dumps(criteria, indent=2)}")
+            logger.info("Extracted criteria: %s", json.dumps(criteria, indent=2))
             
             # Build query
             query = db.query(Email).filter(
@@ -581,7 +583,7 @@ NEVER include subject or content when only searching for sender."""
         logger.info(f"Message: {message!r}")
         logger.info(f"Context has pending_delete: {'pending_delete' in context}")
         if 'pending_delete' in context:
-            logger.info(f"Pending delete content: {json.dumps(context['pending_delete'], default=str)}")
+            logger.info("Pending delete content: %s", json.dumps(context['pending_delete'], default=str))
         
         # Check if user is confirming a previous delete request
         if context.get('pending_delete'):
@@ -624,7 +626,7 @@ NEVER include subject or content when only searching for sender."""
                 for i, email_data in enumerate(pending['emails']):
                     logger.info(f"=== Processing email {i+1}/{len(pending['emails'])} ===")
                     logger.info(f"Looking for email with ID: {email_data['id']}")
-                    logger.info(f"Email data from pending: {json.dumps(email_data, default=str)}")
+                    logger.info("Email data from pending: %s", json.dumps(email_data, default=str))
                     
                     email = db.query(Email).filter(
                         Email.id == email_data['id'],
@@ -672,7 +674,7 @@ NEVER include subject or content when only searching for sender."""
                     else:
                         failed_count += 1
                         logger.error(f"❌ Email not found in database: {email_data['id']}")
-                        logger.error(f"Was looking for: {json.dumps(email_data, default=str)}")
+                        logger.error("Was looking for: %s", json.dumps(email_data, default=str))
                 
                 db.commit()
                 logger.info(f"Database commit completed. Success: {success_count}, Failed: {failed_count}")
@@ -758,7 +760,7 @@ NEVER include subject or content when only searching for sender."""
         emails_to_delete = await self._find_emails_by_description(db, user, message)
         logger.info(f"Found {len(emails_to_delete) if emails_to_delete else 0} emails to delete")
         if emails_to_delete:
-            logger.info(f"First 3 emails to delete: {json.dumps(emails_to_delete[:3], default=str)}")
+            logger.info("First 3 emails to delete: %s", json.dumps(emails_to_delete[:3], default=str))
         
         # If no emails found by description and there's a selected email, use that
         if not emails_to_delete and context.get('selected_email'):
@@ -835,7 +837,7 @@ NEVER include subject or content when only searching for sender."""
         logger.info(f"Number of emails to delete: {len(emails_to_delete)}")
         logger.info(f"Email IDs to be deleted: {[e['id'] for e in emails_to_delete][:10]}...")
         logger.info(f"Email subjects to be deleted: {[e['subject'] for e in emails_to_delete][:5]}...")
-        logger.info(f"Context after setting pending_delete: {json.dumps(context, default=str)[:500]}...")
+        logger.info("Context after setting pending_delete: %s...", json.dumps(context, default=str)[:500])
         
         return confirm_msg, ["confirmation_required"]
     
