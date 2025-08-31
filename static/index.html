@@ -2363,6 +2363,27 @@
                 // For assistant messages, allow HTML to support draft buttons and formatting
                 const content = message.includes('<div') || message.includes('<button') ? message : `<p class="text-sm">${message}</p>`;
                 messageEl.innerHTML = content;
+                
+                // Attach event listeners to any buttons using arrow functions
+                // This gives them access to the local scope and saigContext
+                const buttons = messageEl.querySelectorAll('button[onclick]');
+                buttons.forEach(button => {
+                    const onclickAttr = button.getAttribute('onclick');
+                    if (onclickAttr && onclickAttr.includes('sendMessage')) {
+                        // Extract the message parameter from onclick="sendMessage('...')"
+                        const match = onclickAttr.match(/sendMessage\(['"]([^'"]*)['"]\)/);
+                        if (match) {
+                            const messageParam = match[1];
+                            button.removeAttribute('onclick');
+                            // Use arrow function to preserve scope
+                            button.addEventListener('click', () => {
+                                console.log('Button clicked with message:', messageParam);
+                                console.log('Current context at click time:', window.saigContext);
+                                window.sendMessage(messageParam);
+                            });
+                        }
+                    }
+                });
             }
             
             messagesEl.appendChild(messageEl);
