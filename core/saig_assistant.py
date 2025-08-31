@@ -9,6 +9,7 @@ from sqlalchemy import or_
 
 from core.database import Email, User, ChatHistory, ActionItem
 from core.gmail_service import GmailService
+from core.saig_assistant_simple import SimpleEmailHandler
 from core.urgency_detector import UrgencyDetector
 from core.saig_intelligence import SAIGIntelligence
 
@@ -27,6 +28,7 @@ class SAIGAssistant:
         
         self.gmail_service = GmailService()
         self.intelligence = SAIGIntelligence()  # Initialize intelligence module
+        self.simple_handler = SimpleEmailHandler()  # Simple email deletion handler
         self.api_url = "https://api.anthropic.com/v1/messages"
         self.http_client = httpx.AsyncClient(timeout=30.0)
         # Use Claude 3.5 Haiku for faster responses
@@ -295,7 +297,7 @@ Return only the intent name, nothing else."""
         elif intent == 'list_actions':
             response = await self._list_action_items(db, user)
         elif intent == 'delete_email':
-            response, actions = await self._delete_email(db, user, message, context)
+            response, actions = await self._delete_email_simplified(db, user, message, context)
         elif intent == 'move_to_folder':
             response, actions = await self._move_to_folder(db, user, message, context)
         elif intent == 'create_folder':
@@ -670,7 +672,81 @@ NEVER include subject or content when only searching for sender."""
             # Don't raise the exception, just return empty list
             return []
     
-    async def _delete_email(self, db: Session, user: User, message: str, 
+    async def _delete_email_simplified(self, db: Session, user: User, message: str, 
+                                      context: Dict[str, Any]) -> tuple:
+        """
+        SIMPLIFIED email deletion handler
+        Clear, simple logic with proper preview and confirmation
+        """
+        logger.info(f"=== SIMPLIFIED DELETE EMAIL ===")
+        logger.info(f"Message: {message}")
+        logger.info(f"Has context: {bool(context)}")
+        
+        # Check if this is a confirmation of a previous delete request
+        if context.get('pending_delete'):
+            # User is confirming deletion
+            confirmation_words = ['yes', 'confirm', 'proceed', 'move', 'trash', 'delete', 'ok', 'sure']
+            message_lower = message.lower().strip()
+            
+            # Check for cancellation
+            if any(word in message_lower for word in ['cancel', 'no', 'stop', 'abort']):
+                context.pop('pending_delete', None)
+                return "Cancelled. No emails were moved to trash.", []
+            
+            # Check for confirmation
+            is_confirmed = any(word in message_lower for word in confirmation_words)
+            
+            if is_confirmed:
+                pending = context['pending_delete']
+                email_ids = pending.get('email_ids', [])
+                
+                if not email_ids:
+                    return "No emails selected. Please try again.", []
+                
+                # Execute deletion using simple handler
+                result = self.simple_handler.execute_deletion(
+                    db, user, email_ids, self.gmail_service
+                )
+                
+                # Clear pending delete
+                context.pop('pending_delete', None)
+                
+                if result['success']:
+                    return f"✅ Successfully moved {result['success_count']} emails to trash.", ["emails_moved_to_trash"]
+                else:
+                    return f"⚠️ {result.get('message', 'Some emails could not be moved to trash.')}", []
+            else:
+                return "Please confirm by saying 'yes' or 'confirm', or 'cancel' to abort.", []
+        
+        # This is a new delete request - parse and find emails
+        params = self.simple_handler.parse_email_request(message)
+        
+        if not params:
+            return "I couldn't understand what emails you want to delete. Please specify the sender, time period, or count.", []
+        
+        # Find emails based on parameters
+        emails = self.simple_handler.find_emails_to_delete(db, user, params)
+        
+        if not emails:
+            sender = params.get('sender', 'specified criteria')
+            return f"I couldn't find any emails from {sender}. Please check and try again.", []
+        
+        # Create preview HTML
+        preview_html = self.simple_handler.create_preview_html(emails)
+        
+        # Store email IDs in context for confirmation
+        context['pending_delete'] = {
+            'email_ids': [str(email.id) for email in emails],
+            'count': len(emails),
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        logger.info(f"Showing preview for {len(emails)} emails")
+        logger.info(f"Email IDs: {context['pending_delete']['email_ids'][:5]}...")
+        
+        return preview_html, ["confirmation_required"]
+    
+    async def _delete_email_old(self, db: Session, user: User, message: str, 
                            context: Dict[str, Any]) -> tuple:
         """Move email to trash - SINGLE PATHWAY for all trash operations
         
