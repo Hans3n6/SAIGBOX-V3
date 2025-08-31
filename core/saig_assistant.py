@@ -1058,19 +1058,41 @@ window.moveSelectedToTrash = function() {{
     return;
   }}
   
-  // CRITICAL FIX: Store selected emails globally for sendMessage to use
+  // Store selected emails globally
   window.selectedTrashEmails = selectedEmails;
   
+  console.log('=== MOVING SELECTED EMAILS TO TRASH ===');
   console.log('Selected', selectedEmails.length, 'emails for trash');
   console.log('Email IDs:', selectedEmails.map(e => e.id));
-  console.log('Email subjects:', selectedEmails.map(e => e.subject));
   
-  // Call a special handler that will properly update the context
-  if (window.sendTrashConfirmation) {{
-    window.sendTrashConfirmation(selectedEmails);
+  // CRITICAL: Update window.trashEmailList to ONLY contain selected emails
+  // This is what the backend will actually use
+  window.trashEmailList = selectedEmails;
+  
+  // Find the sendMessage button in the main chat and click it with our message
+  // This is a hack but it works around the scope issues
+  const chatInput = document.getElementById('chat-input');
+  const sendButton = document.querySelector('[onclick*="sendMessage"]');
+  
+  if (chatInput) {{
+    // Set the message in the input
+    chatInput.value = 'Move all to trash';
+    
+    // Trigger the send
+    if (typeof window.sendMessage === 'function') {{
+      window.sendMessage('Move all to trash');
+    }} else if (sendButton) {{
+      sendButton.click();
+    }} else {{
+      // Last resort: dispatch a custom event
+      const event = new CustomEvent('sendTrashConfirmation', {{
+        detail: {{ emails: selectedEmails }}
+      }});
+      document.dispatchEvent(event);
+    }}
   }} else {{
-    // Fallback: just send the message
-    sendMessage('Move all to trash');
+    console.error('Could not find chat interface to send message');
+    alert('Error: Could not send trash command. Please try typing "Move all to trash" in the chat.');
   }}
 }}
 

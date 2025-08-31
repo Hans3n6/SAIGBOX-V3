@@ -2427,6 +2427,20 @@
             sendMessage('Move all to trash');
         };
         
+        // Listen for custom event from the preview modal
+        document.addEventListener('sendTrashConfirmation', function(event) {
+            console.log('=== Custom trash event received ===');
+            if (event.detail && event.detail.emails) {
+                // Update context with selected emails
+                if (saigContext.pending_delete) {
+                    saigContext.pending_delete.emails = event.detail.emails;
+                    console.log('Updated context with', event.detail.emails.length, 'selected emails');
+                }
+                // Send the confirmation
+                sendMessage('Move all to trash');
+            }
+        });
+        
         // Comprehensive trash operation handler with error recovery
         const handleTrashOperation = (messageText) => {
             console.log('=== Trash Operation Handler ===');
