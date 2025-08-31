@@ -942,7 +942,7 @@ NEVER include subject or content when only searching for sender."""
         <div class="flex-1 cursor-pointer" onclick="viewEmailFromPreview('{email['id']}')">
           <div class="text-sm font-medium text-gray-900 truncate">{email['subject'] or 'No Subject'}</div>
           <div class="text-xs text-gray-500 truncate">From: {email['sender']}</div>
-          <div class="text-xs text-gray-400 truncate">Date: {email['date'][:10] if email.get('date') else 'Unknown'}</div>
+          <div class="text-xs text-gray-400 truncate">Date: {str(email['date'])[:10] if email.get('date') else 'Unknown'}</div>
         </div>
       </div>
     </div>"""
