@@ -673,7 +673,7 @@ Return only the fields that are clearly mentioned."""
                 if isinstance(email['date'], datetime):
                     date_str = email['date'].strftime('%b %d, %Y at %I:%M %p')
             
-            confirm_msg = f"""<div class="rounded-xl bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 border border-amber-200 p-6 shadow-xl" style="max-width: 900px; margin: 0 auto;">
+            confirm_msg = f"""<div class="rounded-xl bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 border border-amber-200 p-4 shadow-xl" style="width: 100%; box-sizing: border-box;">
   <div class="flex items-start space-x-4">
     <div class="flex-shrink-0">
       <div class="p-3 bg-gradient-to-br from-amber-100 to-orange-100 rounded-full shadow-md">
@@ -721,16 +721,16 @@ Return only the fields that are clearly mentioned."""
         </p>
       </div>
       
-      <div class="mt-6 flex justify-end space-x-3">
+      <div class="mt-6 flex flex-wrap gap-3 justify-end">
         <button onclick="sendMessage('Cancel')" 
-                class="inline-flex items-center px-5 py-2.5 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-all duration-200 shadow-sm hover:shadow">
+                class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-all duration-200 shadow-sm hover:shadow">
           <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
           </svg>
           Cancel
         </button>
         <button onclick="sendMessage('Yes, move to trash')" 
-                class="inline-flex items-center px-5 py-2.5 border border-transparent text-sm font-medium rounded-lg text-white bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5">
+                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-all duration-200 shadow-lg hover:shadow-xl">
           <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
           </svg>
@@ -765,7 +765,7 @@ Return only the fields that are clearly mentioned."""
         </div>
       </div>"""
             
-            confirm_msg = f"""<div class="rounded-xl bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 border border-amber-200 p-6 shadow-xl" style="max-width: 900px; margin: 0 auto;">
+            confirm_msg = f"""<div class="rounded-xl bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 border border-amber-200 p-4 shadow-xl" style="width: 100%; box-sizing: border-box;">
   <div class="flex items-start space-x-4">
     <div class="flex-shrink-0">
       <div class="p-3 bg-gradient-to-br from-amber-100 to-orange-100 rounded-full shadow-md">
@@ -782,7 +782,7 @@ Return only the fields that are clearly mentioned."""
         <p>The following emails will be moved to your trash folder:</p>
       </div>
       
-      <div class="mt-4 rounded-lg bg-white shadow-inner border border-gray-200" style="max-height: 450px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #CBD5E0 #F7FAFC;">
+      <div class="mt-4 rounded-lg bg-white shadow-inner border border-gray-200" style="max-height: 300px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: #CBD5E0 #F7FAFC;">
         {email_items_html}
       </div>
       
@@ -806,16 +806,16 @@ Return only the fields that are clearly mentioned."""
         </div>
       </div>
       
-      <div class="mt-6 flex justify-end space-x-3">
+      <div class="mt-6 flex flex-wrap gap-3 justify-end">
         <button onclick="sendMessage('Cancel')" 
-                class="inline-flex items-center px-5 py-2.5 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-all duration-200 shadow-sm hover:shadow">
+                class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-all duration-200 shadow-sm hover:shadow">
           <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
           </svg>
           Cancel
         </button>
         <button onclick="sendMessage('Yes, move all to trash')" 
-                class="inline-flex items-center px-5 py-2.5 border border-transparent text-sm font-medium rounded-lg text-white bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5">
+                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-all duration-200 shadow-lg hover:shadow-xl">
           <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
           </svg>
