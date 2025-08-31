@@ -2407,6 +2407,26 @@
         // Make sendMessage available globally for the main chat input button
         window.sendMessage = sendMessage;
         
+        // Special handler for trash confirmation with selected emails
+        window.sendTrashConfirmation = function(selectedEmails) {
+            console.log('=== sendTrashConfirmation called ===');
+            console.log('Selected emails:', selectedEmails);
+            
+            // Update the pending_delete in context to only include selected emails
+            if (saigContext.pending_delete) {
+                console.log('Original pending_delete had', saigContext.pending_delete.emails.length, 'emails');
+                saigContext.pending_delete.emails = selectedEmails;
+                console.log('Updated pending_delete to', selectedEmails.length, 'selected emails');
+                console.log('Selected email IDs:', selectedEmails.map(e => e.id));
+                console.log('Selected email subjects:', selectedEmails.map(e => e.subject));
+            } else {
+                console.error('No pending_delete in context to update!');
+            }
+            
+            // Now send the confirmation message
+            sendMessage('Move all to trash');
+        };
+        
         // Comprehensive trash operation handler with error recovery
         const handleTrashOperation = (messageText) => {
             console.log('=== Trash Operation Handler ===');

@@ -1058,14 +1058,20 @@ function moveSelectedToTrash() {{
     return;
   }}
   
-  // Update the context with only selected emails
-  if (window.saigContext) {{
-    window.saigContext.pending_delete.emails = selectedEmails;
-  }}
+  // CRITICAL FIX: Store selected emails globally for sendMessage to use
+  window.selectedTrashEmails = selectedEmails;
   
-  // Send the confirmation message
-  const message = `Move ${{selectedEmails.length}} selected email${{selectedEmails.length > 1 ? 's' : ''}} to trash`;
-  sendMessage(message);
+  console.log('Selected', selectedEmails.length, 'emails for trash');
+  console.log('Email IDs:', selectedEmails.map(e => e.id));
+  console.log('Email subjects:', selectedEmails.map(e => e.subject));
+  
+  // Call a special handler that will properly update the context
+  if (window.sendTrashConfirmation) {{
+    window.sendTrashConfirmation(selectedEmails);
+  }} else {{
+    // Fallback: just send the message
+    sendMessage('Move all to trash');
+  }}
 }}
 </script>"""
         
