@@ -48,8 +48,29 @@ class SAIGAssistant:
             email_context = await self._get_email_context(db, user, message, context)
             logger.info("Email context built: %s", json.dumps(email_context, default=str) if email_context else 'None')
             
-            # Determine intent
-            intent = await self._analyze_intent(message, email_context)
+            # CRITICAL: Check if this is a confirmation for pending delete BEFORE analyzing intent
+            if email_context.get('pending_delete'):
+                logger.info("=== PENDING DELETE DETECTED - CHECKING FOR CONFIRMATION ===")
+                # Check if this is a confirmation or cancellation
+                message_lower = message.lower().strip()
+                confirmation_keywords = ['yes', 'confirm', 'proceed', 'go ahead', 'sure', 'ok', 'move', 'trash', 'delete']
+                cancellation_keywords = ['no', 'cancel', 'stop', 'wait', 'never', "don't", 'abort']
+                
+                # Check for confirmation
+                if any(keyword in message_lower for keyword in confirmation_keywords):
+                    logger.info("CONFIRMATION DETECTED - Using delete_email intent directly")
+                    intent = 'delete_email'
+                # Check for cancellation
+                elif any(keyword in message_lower for keyword in cancellation_keywords):
+                    logger.info("CANCELLATION DETECTED - Using delete_email intent to handle cancellation")
+                    intent = 'delete_email'
+                else:
+                    # If unclear, still route to delete_email to handle the pending state
+                    logger.info("UNCLEAR RESPONSE - Routing to delete_email to handle")
+                    intent = 'delete_email'
+            else:
+                # Normal intent analysis
+                intent = await self._analyze_intent(message, email_context)
             
             # Execute action based on intent
             response, actions = await self._execute_intent(db, user, intent, message, email_context)
@@ -642,16 +663,22 @@ NEVER include subject or content when only searching for sender."""
         # Check if user is confirming a previous delete request
         if context.get('pending_delete'):
             # Log the confirmation attempt
+            logger.info(f"=== CONFIRMATION PATH ENTERED ===")
             logger.info(f"Processing trash confirmation: {message!r}")
             logger.info(f"Number of emails in pending_delete: {len(context['pending_delete'].get('emails', []))}")
+            logger.info(f"First 3 emails to delete: {context['pending_delete']['emails'][:3] if context['pending_delete'].get('emails') else 'None'}")
             
             # Check for various confirmation messages
             confirmation_phrases = [
                 'yes', 'confirm', 'proceed', 'go ahead', 'sure', 'ok',
                 'move to trash', 'move all to trash', 'yes, move', 'yes move',
-                'move them', 'delete', 'trash them', 'yes, move all'
+                'move them', 'delete', 'trash them', 'yes, move all', 'yes move all to trash'
             ]
             message_lower = message.lower().strip().replace(',', '').replace('.', '')
+            
+            # Log for debugging
+            logger.info(f"Checking confirmation - Original message: '{message}'")
+            logger.info(f"Checking confirmation - Normalized message: '{message_lower}'")
             
             # Check if message contains any confirmation phrase
             is_confirmed = any(phrase in message_lower for phrase in confirmation_phrases)
