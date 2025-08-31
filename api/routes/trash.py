@@ -11,6 +11,21 @@ from core.gmail_service import GmailService
 router = APIRouter()
 gmail_service = GmailService()
 
+def clean_email_data(emails):
+    """Clean email data to ensure lists are not None"""
+    for email in emails:
+        if email.labels is None:
+            email.labels = []
+        if email.attachments is None:
+            email.attachments = []
+        if email.recipients is None:
+            email.recipients = []
+        if email.cc is None:
+            email.cc = []
+        if email.bcc is None:
+            email.bcc = []
+    return emails
+
 @router.get("/", response_model=List[Email])
 async def list_trashed_emails(
     current_user: User = Depends(get_current_user),
@@ -21,6 +36,9 @@ async def list_trashed_emails(
         EmailModel.user_id == current_user.id,
         EmailModel.deleted_at.isnot(None)
     ).order_by(EmailModel.deleted_at.desc()).all()
+    
+    # Clean email data to ensure all list fields are not None
+    emails = clean_email_data(emails)
     
     return emails
 
