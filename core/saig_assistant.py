@@ -618,15 +618,10 @@ NEVER include subject or content when only searching for sender."""
             if criteria.get('count'):
                 emails = query.order_by(Email.received_at.desc()).limit(criteria['count']).all()
             else:
-                # Check if "all" was mentioned in the original description
-                if 'all' in description.lower():
-                    # Get ALL matching emails when user explicitly says "all"
-                    emails = query.order_by(Email.received_at.desc()).all()
-                    logger.info(f"User requested ALL emails, found {len(emails)} total")
-                else:
-                    # Default to reasonable limit for safety when "all" not mentioned
-                    emails = query.order_by(Email.received_at.desc()).limit(100).all()
-                    logger.info(f"Limited to 100 emails for safety (use 'all' to get everything)")
+                # Default to reasonable limit for safety
+                # User will see exactly what will be deleted in the preview
+                emails = query.order_by(Email.received_at.desc()).limit(50).all()
+                logger.info(f"Found {len(emails)} emails (limited to 50 for safety)")
             
             logger.info(f"Search found {len(emails)} emails")
             if emails:
@@ -917,36 +912,25 @@ NEVER include subject or content when only searching for sender."""
   </div>
 </div>"""
         else:
-            # Multiple emails - show preview of emails in scrollable list
-            # Show only first 10 emails in preview but note total count
-            preview_emails = emails_to_delete[:10]
-            show_more_text = f" (and {len(emails_to_delete) - 10} more)" if len(emails_to_delete) > 10 else ""
-            
+            # Multiple emails - show ALL emails in scrollable list
             email_items_html = ""
-            for i, email in enumerate(preview_emails):
+            for i, email in enumerate(emails_to_delete):
                 email_items_html += f"""
     <div class="bg-white p-2 mb-1.5 rounded border border-gray-200" style="overflow: hidden;">
       <div class="text-sm font-medium text-gray-900 truncate">{email['subject'] or 'No Subject'}</div>
       <div class="text-xs text-gray-500 truncate">From: {email['sender']}</div>
     </div>"""
             
-            # Add indication if there are more emails
-            if len(emails_to_delete) > 10:
-                email_items_html += f"""
-    <div class="bg-gray-100 p-2 rounded border border-gray-300 text-center">
-      <div class="text-sm font-medium text-gray-700">... and {len(emails_to_delete) - 10} more emails ...</div>
-    </div>"""
-            
             confirm_msg = f"""<div class="p-4 border border-amber-300 rounded-lg bg-amber-50" style="width: 100%; box-sizing: border-box;">
   <div class="text-base font-semibold text-gray-900 mb-3">🗑️ Move {len(emails_to_delete)} Email{'s' if len(emails_to_delete) > 1 else ''} to Trash?</div>
-  <div class="text-sm text-gray-600 mb-3">{'Showing first 10 emails:' if len(emails_to_delete) > 10 else 'These emails will be moved to trash:'}</div>
+  <div class="text-sm text-gray-600 mb-3">These emails will be moved to trash:</div>
   <div class="bg-gray-50 p-2 rounded border border-gray-200" style="max-height: 250px; overflow-y: auto; overflow-x: hidden; position: relative;">
     <div style="position: sticky; top: 0; background: linear-gradient(to bottom, #f9fafb 0%, #f9fafb 90%, transparent 100%); z-index: 1; height: 10px; margin-bottom: -10px;"></div>
 {email_items_html}
     <div style="position: sticky; bottom: 0; background: linear-gradient(to top, #f9fafb 0%, #f9fafb 90%, transparent 100%); z-index: 1; height: 10px; margin-top: -10px;"></div>
   </div>
   <div class="text-sm text-amber-700 mb-4 mt-3">
-    <div>📧 <strong>Total: {len(emails_to_delete)} emails</strong> will be moved to trash{show_more_text}</div>
+    <div>📧 All {len(emails_to_delete)} emails shown above will be moved to trash</div>
     <div>↩️ You can restore them within 30 days</div>
   </div>
   <div class="flex gap-3 justify-end">
