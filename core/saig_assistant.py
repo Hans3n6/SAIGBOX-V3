@@ -440,7 +440,7 @@ Return as JSON with keys: title, description, priority (high/medium/low), due_da
         """
         
         # Extract search criteria from description
-        prompt = f"""Extract email search criteria from this description: "{description}"
+        prompt = f"""Extract email search criteria from this description: {description!r}
         
 IMPORTANT RULES:
 1. If the description mentions "from [sender]" or "emails from [sender]" or "all emails from [sender]", 
