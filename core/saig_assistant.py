@@ -432,26 +432,46 @@ Return as JSON with keys: title, description, priority (high/medium/low), due_da
         return response
     
     async def _find_emails_by_description(self, db: Session, user: User, description: str) -> List[Dict]:
-        """Find emails based on natural language description"""
+        """Find emails based on natural language description
+        
+        IMPORTANT: When searching for emails FROM a specific sender, ONLY search sender fields.
+        """
         
         # Extract search criteria from description
         prompt = f"""Extract email search criteria from this description: "{description}"
         
+IMPORTANT RULES:
+1. If the description mentions "from [sender]" or "emails from [sender]" or "all emails from [sender]", 
+   ONLY return the sender field. DO NOT include subject or content fields.
+2. If the description mentions "about [topic]" or "regarding [topic]", search subject and content.
+3. If both sender AND topic are mentioned, include both.
+
 Return as JSON with any of these fields that apply:
-- sender: email address or name of sender
-- subject: keywords from subject line
+- sender: email address or name of sender (ONLY if "from" is mentioned)
+- subject: keywords from subject line (ONLY if topic/about/regarding is mentioned, NOT for sender searches)
 - time_period: recent/today/yesterday/last_week/last_month/older_than_X
 - read_status: read/unread
 - has_attachments: true/false
-- content: keywords from email body
+- content: keywords from email body (ONLY if searching for content, NOT for sender searches)
 - count: number of emails if specified (e.g. "last 5 emails")
 
+Examples:
+- "delete all emails from Lids" → {"sender": "Lids"}
+- "delete emails about promotions" → {"subject": "promotions", "content": "promotions"}
+- "delete recent emails from Nike about sales" → {"sender": "Nike", "subject": "sales"}
+- "move all emails from john@example.com to trash" → {"sender": "john@example.com"}
+
 If the description mentions "all" or doesn't specify a limit, set count to null.
-Return only the fields that are clearly mentioned."""
+Return only the fields that are clearly mentioned.
+NEVER include subject or content when only searching for sender."""
 
         try:
             criteria_json = await self._call_anthropic(prompt, max_tokens=200, temperature=0.3)
             criteria = json.loads(criteria_json.strip())
+            
+            logger.info(f"=== Email Search Criteria ===")
+            logger.info(f"Description: '{description}'")
+            logger.info(f"Extracted criteria: {json.dumps(criteria, indent=2)}")
             
             # Build query
             query = db.query(Email).filter(
@@ -462,12 +482,16 @@ Return only the fields that are clearly mentioned."""
             # Apply filters based on criteria
             if criteria.get('sender'):
                 sender_term = f"%{criteria['sender']}%"
+                logger.info(f"Searching for sender: '{sender_term}' (ONLY in sender fields)")
                 query = query.filter(
                     or_(
                         Email.sender.ilike(sender_term),
                         Email.sender_name.ilike(sender_term)
                     )
                 )
+                # Log warning if subject/content were incorrectly included
+                if criteria.get('subject') or criteria.get('content'):
+                    logger.warning(f"⚠️ Subject/content fields ignored for sender-only search")
             
             if criteria.get('subject'):
                 query = query.filter(Email.subject.ilike(f"%{criteria['subject']}%"))
@@ -521,6 +545,12 @@ Return only the fields that are clearly mentioned."""
             else:
                 # Default to reasonable limit for safety
                 emails = query.order_by(Email.received_at.desc()).limit(100).all()
+            
+            logger.info(f"Search found {len(emails)} emails")
+            if emails:
+                logger.info(f"Sample results (first 3):")
+                for i, email in enumerate(emails[:3]):
+                    logger.info(f"  {i+1}. From: {email.sender_name or email.sender} | Subject: {email.subject}")
             
             # Convert to dict format
             return [
