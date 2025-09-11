@@ -4480,15 +4480,26 @@ Generate a thoughtful and contextually appropriate response that:
         // Additional functions for complete functionality
         async function completeAction(actionId) {
             try {
+                // Build headers - only add Authorization if we have a real token
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+                
+                // Only add Authorization header if we have a real JWT token (not 'session')
+                if (authToken && authToken !== 'session') {
+                    headers['Authorization'] = `Bearer ${authToken}`;
+                }
+                
                 const response = await fetch(`/api/actions/${actionId}/complete`, {
                     method: 'PUT',
-                    headers: {
-                        'Authorization': `Bearer ${authToken}`
-                    }
+                    headers: headers,
+                    credentials: 'include'  // Include cookies for session auth
                 });
                 
                 if (response.ok) {
                     loadActionItems();
+                } else {
+                    console.error('Failed to complete action:', response.status, response.statusText);
                 }
             } catch (error) {
                 console.error('Error completing action:', error);
@@ -4499,15 +4510,26 @@ Generate a thoughtful and contextually appropriate response that:
             if (!confirm('Delete this action item?')) return;
             
             try {
+                // Build headers - only add Authorization if we have a real token
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+                
+                // Only add Authorization header if we have a real JWT token (not 'session')
+                if (authToken && authToken !== 'session') {
+                    headers['Authorization'] = `Bearer ${authToken}`;
+                }
+                
                 const response = await fetch(`/api/actions/${actionId}`, {
                     method: 'DELETE',
-                    headers: {
-                        'Authorization': `Bearer ${authToken}`
-                    }
+                    headers: headers,
+                    credentials: 'include'  // Include cookies for session auth
                 });
                 
                 if (response.ok) {
                     loadActionItems();
+                } else {
+                    console.error('Failed to delete action:', response.status, response.statusText);
                 }
             } catch (error) {
                 console.error('Error deleting action:', error);
