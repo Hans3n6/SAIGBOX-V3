@@ -7,9 +7,13 @@ from api.auth import get_current_user
 from api.models import Email, TrashEmptyResponse
 from core.database import get_db, User, Email as EmailModel
 from core.gmail_service import GmailService
+from core.outlook_service import OutlookService
+import logging
 
 router = APIRouter()
 gmail_service = GmailService()
+outlook_service = OutlookService()
+logger = logging.getLogger(__name__)
 
 def clean_email_data(emails):
     """Clean email data to ensure lists are not None"""
@@ -58,11 +62,15 @@ async def restore_email(
     if not email:
         raise HTTPException(status_code=404, detail="Trashed email not found")
     
-    # Restore in Gmail
+    # Restore in email provider (Gmail or Outlook)
     if email.gmail_id:
         success = gmail_service.restore_from_trash(current_user, email.gmail_id)
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to restore email in Gmail")
+            logger.warning(f"Failed to restore email {email.gmail_id} in Gmail")
+    elif email.outlook_id:
+        success = outlook_service.restore_from_trash(current_user, email.outlook_id, db)
+        if not success:
+            logger.warning(f"Failed to restore email {email.outlook_id} in Outlook")
     
     # Restore in database
     email.deleted_at = None
@@ -86,11 +94,16 @@ async def permanently_delete_email(
     if not email:
         raise HTTPException(status_code=404, detail="Trashed email not found")
     
-    # Permanently delete from Gmail first
+    # Permanently delete from email provider first
     if email.gmail_id:
         success = gmail_service.permanently_delete(current_user, email.gmail_id)
         if not success:
             logger.warning(f"Failed to permanently delete email {email.gmail_id} from Gmail")
+            # Continue anyway to remove from local database
+    elif email.outlook_id:
+        success = outlook_service.permanently_delete(current_user, email.outlook_id, db)
+        if not success:
+            logger.warning(f"Failed to permanently delete email {email.outlook_id} from Outlook")
             # Continue anyway to remove from local database
     
     # Permanently delete from database

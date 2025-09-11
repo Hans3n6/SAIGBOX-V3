@@ -389,7 +389,7 @@ setTimeout(function() {{
 }}, 100);
 </script>"""
     
-    def execute_deletion(self, db: Session, user: User, email_ids: List[str], gmail_service, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    def execute_deletion(self, db: Session, user: User, email_ids: List[str], email_service, params: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Actually delete the emails with batch processing to avoid timeouts
         Processes in chunks to handle large deletions
@@ -445,14 +445,24 @@ setTimeout(function() {{
                     all_deleted_details.append(f"{email.sender_name or email.sender}: {email.subject[:30]}")
                     logger.debug(f"Deleting: ID={email_id}, From={email.sender_name or email.sender}, Subject={email.subject[:50]}")
                     
-                    # Move to trash in Gmail (with quick timeout)
-                    if email.gmail_id and gmail_service:
+                    # Move to trash in email provider (Gmail or Outlook)
+                    if email.gmail_id and email_service:
                         try:
-                            # Use a shorter timeout for Gmail API calls
-                            gmail_service.move_to_trash(user, email.gmail_id)
+                            # Gmail
+                            email_service.move_to_trash(user, email.gmail_id)
                             logger.debug(f"Moved {email.gmail_id} to Gmail trash")
                         except Exception as e:
                             logger.warning(f"Gmail API error for {email.gmail_id}: {e}")
+                            # Continue anyway - we'll mark as deleted locally
+                    elif email.outlook_id and email_service:
+                        try:
+                            # Outlook - need to pass db for token management
+                            from core.outlook_service import OutlookService
+                            if isinstance(email_service, OutlookService):
+                                email_service.move_to_trash(user, email.outlook_id, db)
+                                logger.debug(f"Moved {email.outlook_id} to Outlook trash")
+                        except Exception as e:
+                            logger.warning(f"Outlook API error for {email.outlook_id}: {e}")
                             # Continue anyway - we'll mark as deleted locally
                     
                     # Mark as deleted in our database

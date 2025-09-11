@@ -55,8 +55,10 @@ class Email(Base):
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
-    gmail_id = Column(String, unique=True, index=True)
-    thread_id = Column(String, index=True)
+    gmail_id = Column(String, unique=True, index=True, nullable=True)  # Gmail message ID
+    outlook_id = Column(String, unique=True, index=True, nullable=True)  # Outlook message ID
+    thread_id = Column(String, index=True)  # Gmail thread ID
+    conversation_id = Column(String, index=True, nullable=True)  # Outlook conversation ID
     subject = Column(String)
     sender = Column(String)
     sender_name = Column(String)

@@ -24,6 +24,7 @@ from api.routes import emails, actions, huddles, trash, saig, intelligence, urge
 from api.middleware import AuthMiddleware
 from core.database import get_db, User, Email
 from core.gmail_service import GmailService
+from core.outlook_service import OutlookService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -66,8 +67,9 @@ app.include_router(saig.router, prefix="/api/saig", tags=["saig"])
 app.include_router(intelligence.router, prefix="/api/intelligence", tags=["intelligence"])
 app.include_router(urgent.router, prefix="/api/urgent", tags=["urgent"])
 
-# Gmail service instance
+# Email service instances
 gmail_service = GmailService()
+outlook_service = OutlookService()
 
 # Background sync task
 async def sync_emails_background():
@@ -393,17 +395,25 @@ async def trigger_sync(
         page_token = body.get('page_token', None)
         logger.info(f"Sync request from {current_user.email}: max_results={max_results}, page_token={page_token}")
         
+        # Determine which email service to use based on user's provider
+        email_service = gmail_service  # Default to Gmail
+        if current_user.provider == 'microsoft':
+            email_service = outlook_service
+            logger.info(f"Using Outlook service for {current_user.email}")
+        else:
+            logger.info(f"Using Gmail service for {current_user.email}")
+        
         # Store page tokens in session for continuous fetching
-        if not hasattr(app.state, 'gmail_tokens'):
-            app.state.gmail_tokens = {}
+        if not hasattr(app.state, 'email_tokens'):
+            app.state.email_tokens = {}
         
         user_token_key = current_user.email
         
         # Use provided page token or get from session
-        token = page_token or app.state.gmail_tokens.get(user_token_key)
+        token = page_token or app.state.email_tokens.get(user_token_key)
         
         # Fetch emails with fallback support
-        result = gmail_service.fetch_emails(db, current_user, max_results=max_results, page_token=token)
+        result = email_service.fetch_emails(db, current_user, max_results=max_results, page_token=token)
         
         # Check if fallback was used
         if result.get('fallback') or result.get('cached'):
@@ -419,10 +429,10 @@ async def trigger_sync(
         
         # Store next page token for continuous fetching
         if result.get('next_page_token'):
-            app.state.gmail_tokens[user_token_key] = result['next_page_token']
+            app.state.email_tokens[user_token_key] = result['next_page_token']
         else:
             # Clear token if no more pages
-            app.state.gmail_tokens.pop(user_token_key, None)
+            app.state.email_tokens.pop(user_token_key, None)
         
         # Check for partial failures
         failed_count = result.get('failed', 0)
