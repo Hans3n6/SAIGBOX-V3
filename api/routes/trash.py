@@ -86,6 +86,13 @@ async def permanently_delete_email(
     if not email:
         raise HTTPException(status_code=404, detail="Trashed email not found")
     
+    # Permanently delete from Gmail first
+    if email.gmail_id:
+        success = gmail_service.permanently_delete(current_user, email.gmail_id)
+        if not success:
+            logger.warning(f"Failed to permanently delete email {email.gmail_id} from Gmail")
+            # Continue anyway to remove from local database
+    
     # Permanently delete from database
     db.delete(email)
     db.commit()
@@ -105,12 +112,24 @@ async def empty_trash(
     ).all()
     
     deleted_count = len(trashed_emails)
+    gmail_deleted = 0
     
-    # Delete all trashed emails
+    # Delete all trashed emails from Gmail and database
     for email in trashed_emails:
+        # Try to delete from Gmail first
+        if email.gmail_id:
+            success = gmail_service.permanently_delete(current_user, email.gmail_id)
+            if success:
+                gmail_deleted += 1
+            else:
+                logger.warning(f"Failed to permanently delete email {email.gmail_id} from Gmail")
+        
+        # Always delete from local database
         db.delete(email)
     
     db.commit()
+    
+    logger.info(f"Emptied trash: {deleted_count} emails deleted locally, {gmail_deleted} deleted from Gmail")
     
     return TrashEmptyResponse(
         deleted_count=deleted_count,
@@ -134,12 +153,24 @@ async def auto_clean_trash(
     ).all()
     
     deleted_count = len(old_emails)
+    gmail_deleted = 0
     
-    # Delete old emails
+    # Delete old emails from Gmail and database
     for email in old_emails:
+        # Try to delete from Gmail first
+        if email.gmail_id:
+            success = gmail_service.permanently_delete(current_user, email.gmail_id)
+            if success:
+                gmail_deleted += 1
+            else:
+                logger.warning(f"Failed to permanently delete old email {email.gmail_id} from Gmail")
+        
+        # Always delete from local database
         db.delete(email)
     
     db.commit()
+    
+    logger.info(f"Auto-cleaned trash: {deleted_count} emails deleted locally, {gmail_deleted} deleted from Gmail")
     
     return {
         "success": True,

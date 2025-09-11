@@ -1,0 +1,115 @@
+{
+  "urgency_detection": {
+    "threshold": 35,
+    "keywords": {
+      "high_priority": {
+        "words": ["urgent", "asap", "critical", "emergency", "immediate", "crisis", "escalation", "blocker", "showstopper", "breaking", "vital", "essential"],
+        "score": 30
+      },
+      "time_sensitive": {
+        "words": ["today", "tomorrow", "eod", "cob", "deadline", "due date", "by end of", "within", "expires", "expiring", "overdue", "before close", "by noon", "this morning", "this afternoon"],
+        "score": 20
+      },
+      "action_required": {
+        "words": ["please review", "need approval", "waiting for", "action required", "please confirm", "please respond", "need your", "require your", "can you", "could you", "would you", "will you", "kindly", "requested to"],
+        "score": 15
+      },
+      "follow_up": {
+        "words": ["follow up", "following up", "reminder", "second request", "haven't heard", "checking in", "any update", "status update", "gentle reminder", "friendly reminder"],
+        "score": 15
+      }
+    },
+    "sender_scoring": {
+      "vip_boost": 50,
+      "c_level_boost": 40,
+      "manager_boost": 35,
+      "important_domain_boost": 30,
+      "frequent_sender_boost": 20
+    }
+  },
+  "action_extraction": {
+    "confidence_threshold": 65,
+    "patterns": {
+      "meeting_request": {
+        "keywords": ["schedule", "meeting", "call", "discuss", "availability", "calendar", "zoom", "teams", "conference"],
+        "template": "Schedule meeting: {subject}",
+        "priority": 2,
+        "default_duration_days": 3
+      },
+      "approval_needed": {
+        "keywords": ["approval", "approve", "sign off", "authorize", "permission", "consent", "endorsement"],
+        "template": "Review and approve: {subject}",
+        "priority": 1,
+        "default_duration_days": 2
+      },
+      "document_review": {
+        "keywords": ["review", "feedback", "comments", "draft", "document", "proposal", "report", "presentation"],
+        "template": "Review document: {subject}",
+        "priority": 2,
+        "default_duration_days": 3
+      },
+      "payment_action": {
+        "keywords": ["invoice", "payment", "bill", "due", "remittance", "expense", "reimbursement", "purchase order"],
+        "template": "Process payment: {subject}",
+        "priority": 1,
+        "default_duration_days": 5
+      },
+      "response_required": {
+        "keywords": ["respond", "reply", "answer", "confirm", "let me know", "get back", "your thoughts", "your input"],
+        "template": "Respond to: {subject}",
+        "priority": 2,
+        "default_duration_days": 2
+      },
+      "task_assignment": {
+        "keywords": ["assigned", "task", "responsible", "complete", "deliver", "submit", "prepare", "create"],
+        "template": "Complete task: {subject}",
+        "priority": 2,
+        "default_duration_days": 5
+      },
+      "registration_signup": {
+        "keywords": ["register", "sign up", "enroll", "rsvp", "attend", "join", "participate"],
+        "template": "Register for: {subject}",
+        "priority": 3,
+        "default_duration_days": 7
+      }
+    }
+  },
+  "processing": {
+    "batch_size": 10,
+    "parallel_workers": 5,
+    "cache_ttl_seconds": 3600,
+    "max_retries": 3,
+    "retry_delay_seconds": 5
+  },
+  "machine_learning": {
+    "enabled": true,
+    "feedback_learning_rate": 0.1,
+    "min_confidence_adjustment": -20,
+    "max_confidence_adjustment": 20,
+    "pattern_memory_size": 1000
+  },
+  "real_time": {
+    "enabled": true,
+    "websocket_enabled": true,
+    "instant_notification_threshold": 60,
+    "debounce_ms": 500
+  },
+  "industry_modes": {
+    "tech": {
+      "additional_keywords": ["deploy", "production", "bug", "feature", "sprint", "standup", "retrospective"],
+      "priority_boost": 5
+    },
+    "finance": {
+      "additional_keywords": ["compliance", "audit", "regulation", "filing", "quarter", "earnings"],
+      "priority_boost": 10
+    },
+    "healthcare": {
+      "additional_keywords": ["patient", "appointment", "prescription", "diagnosis", "treatment"],
+      "priority_boost": 15
+    },
+    "legal": {
+      "additional_keywords": ["case", "court", "filing", "deposition", "discovery", "brief"],
+      "priority_boost": 20
+    }
+  }
+}

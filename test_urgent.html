@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SAIGBOX Urgent Email Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .urgent { background-color: #fee; padding: 10px; margin: 10px 0; border-left: 4px solid red; }
+        .normal { background-color: #f0f0f0; padding: 10px; margin: 10px 0; }
+        .action-item { background-color: #efe; padding: 10px; margin: 10px 0; border-left: 4px solid green; }
+    </style>
+</head>
+<body>
+    <h1>SAIGBOX Debug - Urgent Emails & Action Items</h1>
+    
+    <div id="status">Loading...</div>
+    
+    <h2>Urgent Emails (<span id="urgent-count">0</span>)</h2>
+    <div id="urgent-emails"></div>
+    
+    <h2>All Emails (first 10)</h2>
+    <div id="all-emails"></div>
+    
+    <h2>Action Items (<span id="action-count">0</span>)</h2>
+    <div id="action-items"></div>
+
+    <script>
+        async function loadData() {
+            const status = document.getElementById('status');
+            
+            try {
+                // Load emails
+                status.textContent = 'Loading emails...';
+                const emailResponse = await fetch('/api/emails?limit=50', {
+                    credentials: 'include'
+                });
+                
+                if (!emailResponse.ok) {
+                    status.textContent = `Error loading emails: ${emailResponse.status}`;
+                    return;
+                }
+                
+                const emailData = await emailResponse.json();
+                console.log('Email data:', emailData);
+                
+                // Display urgent emails
+                const urgentEmails = emailData.emails.filter(e => e.is_urgent);
+                document.getElementById('urgent-count').textContent = urgentEmails.length;
+                
+                const urgentDiv = document.getElementById('urgent-emails');
+                urgentDiv.innerHTML = '';
+                
+                urgentEmails.forEach(email => {
+                    const div = document.createElement('div');
+                    div.className = 'urgent';
+                    div.innerHTML = `
+                        <strong>${email.subject}</strong><br>
+                        From: ${email.sender}<br>
+                        Urgent: ${email.is_urgent} | Score: ${email.urgency_score}<br>
+                        Reason: ${email.urgency_reason || 'N/A'}
+                    `;
+                    urgentDiv.appendChild(div);
+                });
+                
+                // Display all emails (first 10)
+                const allDiv = document.getElementById('all-emails');
+                allDiv.innerHTML = '';
+                
+                emailData.emails.slice(0, 10).forEach(email => {
+                    const div = document.createElement('div');
+                    div.className = email.is_urgent ? 'urgent' : 'normal';
+                    div.innerHTML = `
+                        <strong>${email.subject}</strong><br>
+                        From: ${email.sender}<br>
+                        Urgent: ${email.is_urgent} | Score: ${email.urgency_score}
+                    `;
+                    allDiv.appendChild(div);
+                });
+                
+                // Load action items
+                status.textContent = 'Loading action items...';
+                const actionResponse = await fetch('/api/actions', {
+                    credentials: 'include'
+                });
+                
+                if (actionResponse.ok) {
+                    const actionData = await actionResponse.json();
+                    console.log('Action data:', actionData);
+                    
+                    document.getElementById('action-count').textContent = actionData.length;
+                    
+                    const actionDiv = document.getElementById('action-items');
+                    actionDiv.innerHTML = '';
+                    
+                    actionData.forEach(action => {
+                        const div = document.createElement('div');
+                        div.className = 'action-item';
+                        div.innerHTML = `
+                            <strong>${action.title}</strong><br>
+                            Priority: ${action.priority} | Status: ${action.status}<br>
+                            ${action.description || 'No description'}
+                        `;
+                        actionDiv.appendChild(div);
+                    });
+                } else {
+                    console.error('Failed to load actions:', actionResponse.status);
+                }
+                
+                status.textContent = 'Data loaded successfully!';
+                
+            } catch (error) {
+                status.textContent = `Error: ${error.message}`;
+                console.error('Error loading data:', error);
+            }
+        }
+        
+        // Load data on page load
+        loadData();
+    </script>
+</body>
+</html>

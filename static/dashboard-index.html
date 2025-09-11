@@ -230,7 +230,7 @@
                             <p class="text-sm text-gray-500 mt-2">Loading more emails...</p>
                         </div>
                         <div id="no-more-emails" class="hidden p-4 text-center text-gray-500">
-                            <p class="text-sm">No more emails to load</p>
+                            <!-- Removed for infinite scrolling -->
                         </div>
                     </div>
                     
@@ -1187,12 +1187,14 @@
                 applyCurrentFilter(append && uniqueNewEmails.length > 0 ? uniqueNewEmails : null);
                 
                 totalEmailsLoaded = allLoadedEmails.length;
-                hasMoreEmails = inboxData.has_next;
+                // For infinite scrolling, always continue loading
+                hasMoreEmails = true; // Always assume more emails for infinite scroll
                 
                 // Update no more emails indicator
                 const noMoreEmails = document.getElementById('no-more-emails');
                 if (noMoreEmails) {
-                    if (!hasMoreEmails && append) {
+                    // Infinite scroll - no end message
+                    if (false) { // Disabled for infinite scroll
                         // Show "no more emails" message only after an append operation
                         noMoreEmails.classList.remove('hidden');
                     } else {
@@ -1216,8 +1218,8 @@
                     }, 500); // 500ms delay between auto-loads
                 } else {
                     isAutoLoading = false;
-                    if (!hasMoreEmails) {
-                        console.log('All emails loaded');
+                    // Infinite scroll - no end message
+                    if (false) { // Disabled
                     }
                 }
             } catch (error) {

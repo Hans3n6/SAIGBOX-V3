@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_serializer
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
@@ -14,6 +14,18 @@ class User(UserBase):
     id: str
     created_at: datetime
     updated_at: datetime
+    
+    @field_serializer('created_at', 'updated_at')
+    def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+        if dt is None:
+            return None
+        # Ensure UTC timezone is indicated with 'Z' suffix
+        if dt.tzinfo is None:
+            # Naive datetime - assume it's UTC and add 'Z'
+            return dt.isoformat() + 'Z'
+        else:
+            # Timezone-aware datetime - use standard ISO format
+            return dt.isoformat()
     
     class Config:
         from_attributes = True
@@ -59,12 +71,27 @@ class Email(EmailBase):
     labels: List[str] = []
     is_read: bool = False
     is_starred: bool = False
+    is_urgent: bool = False
+    urgency_score: int = 0
+    urgency_reason: Optional[str] = None
     has_attachments: bool = False
     attachments: List[Dict[str, Any]] = []
     received_at: Optional[datetime] = None
     deleted_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+    
+    @field_serializer('received_at', 'deleted_at', 'created_at', 'updated_at')
+    def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+        if dt is None:
+            return None
+        # Ensure UTC timezone is indicated with 'Z' suffix
+        if dt.tzinfo is None:
+            # Naive datetime - assume it's UTC and add 'Z'
+            return dt.isoformat() + 'Z'
+        else:
+            # Timezone-aware datetime - use standard ISO format
+            return dt.isoformat()
     
     class Config:
         from_attributes = True
@@ -104,6 +131,18 @@ class ActionItem(ActionItemBase):
     completed_at: Optional[datetime] = None
     updated_at: datetime
     
+    @field_serializer('due_date', 'created_at', 'completed_at', 'updated_at')
+    def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+        if dt is None:
+            return None
+        # Ensure UTC timezone is indicated with 'Z' suffix
+        if dt.tzinfo is None:
+            # Naive datetime - assume it's UTC and add 'Z'
+            return dt.isoformat() + 'Z'
+        else:
+            # Timezone-aware datetime - use standard ISO format
+            return dt.isoformat()
+    
     class Config:
         from_attributes = True
 
@@ -127,6 +166,18 @@ class Huddle(HuddleBase):
     updated_at: datetime
     members: List[Dict[str, Any]] = []
     
+    @field_serializer('created_at', 'updated_at')
+    def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+        if dt is None:
+            return None
+        # Ensure UTC timezone is indicated with 'Z' suffix
+        if dt.tzinfo is None:
+            # Naive datetime - assume it's UTC and add 'Z'
+            return dt.isoformat() + 'Z'
+        else:
+            # Timezone-aware datetime - use standard ISO format
+            return dt.isoformat()
+    
     class Config:
         from_attributes = True
 
@@ -143,6 +194,18 @@ class HuddleMessage(BaseModel):
     sender_email: str
     message: str
     created_at: datetime
+    
+    @field_serializer('created_at')
+    def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+        if dt is None:
+            return None
+        # Ensure UTC timezone is indicated with 'Z' suffix
+        if dt.tzinfo is None:
+            # Naive datetime - assume it's UTC and add 'Z'
+            return dt.isoformat() + 'Z'
+        else:
+            # Timezone-aware datetime - use standard ISO format
+            return dt.isoformat()
     
     class Config:
         from_attributes = True
@@ -165,6 +228,18 @@ class SyncStatus(BaseModel):
     last_sync: Optional[datetime] = None
     emails_synced: int = 0
     error: Optional[str] = None
+    
+    @field_serializer('last_sync')
+    def serialize_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+        if dt is None:
+            return None
+        # Ensure UTC timezone is indicated with 'Z' suffix
+        if dt.tzinfo is None:
+            # Naive datetime - assume it's UTC and add 'Z'
+            return dt.isoformat() + 'Z'
+        else:
+            # Timezone-aware datetime - use standard ISO format
+            return dt.isoformat()
 
 class PaginationParams(BaseModel):
     page: int = Field(default=1, ge=1)

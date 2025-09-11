@@ -63,7 +63,7 @@ async def list_emails(
             total=total,
             page=page,
             pages=pages,
-            has_next=False,
+            has_next=False,  # Semantic search doesn't use infinite scroll
             has_prev=False
         )
     
@@ -98,12 +98,14 @@ async def list_emails(
     # Calculate pagination info
     pages = (total + limit - 1) // limit
     
+    # Return actual pagination state
+    # Frontend will handle infinite scroll logic
     return EmailListResponse(
         emails=emails,
         total=total,
         page=page,
         pages=pages,
-        has_next=page < pages,
+        has_next=page < pages,  # Return actual state
         has_prev=page > 1
     )
 
@@ -142,12 +144,14 @@ async def list_sent_emails(
     # Calculate pagination info
     pages = (total + limit - 1) // limit
     
+    # Return actual pagination state
+    # Frontend will handle infinite scroll logic
     return EmailListResponse(
         emails=emails,
         total=total,
         page=page,
         pages=pages,
-        has_next=page < pages,
+        has_next=page < pages,  # Return actual state
         has_prev=page > 1
     )
 

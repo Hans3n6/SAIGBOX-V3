@@ -1,3 +1,4 @@
+import os
 import re
 import logging
 from datetime import datetime, timedelta
@@ -23,7 +24,8 @@ class UrgencyDetector:
     # Time-sensitive keywords (20 points each)
     TIME_SENSITIVE_KEYWORDS = [
         'today', 'tomorrow', 'eod', 'cob', 'deadline', 'due date',
-        'by end of', 'within', 'expires', 'expiring', 'overdue'
+        'by end of', 'within', 'expires', 'expiring', 'overdue',
+        'due tomorrow', 'due today', 'before 12', 'before 1'
     ]
     
     # Action required keywords (15 points each)

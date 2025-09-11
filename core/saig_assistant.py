@@ -51,15 +51,19 @@ class SAIGAssistant:
             logger.info("Email context built: %s", json.dumps(email_context, default=str) if email_context else 'None')
             
             # CRITICAL: Check if this is a confirmation for pending delete BEFORE analyzing intent
-            if email_context.get('pending_delete'):
+            if email_context.get('pending_delete') or message.startswith('confirm delete with ids:'):
                 logger.info("=== PENDING DELETE DETECTED - CHECKING FOR CONFIRMATION ===")
                 # Check if this is a confirmation or cancellation
                 message_lower = message.lower().strip()
                 confirmation_keywords = ['yes', 'confirm', 'proceed', 'go ahead', 'sure', 'ok', 'move', 'trash', 'delete']
                 cancellation_keywords = ['no', 'cancel', 'stop', 'wait', 'never', "don't", 'abort']
                 
+                # Check for specific ID confirmation
+                if message.startswith('confirm delete with ids:'):
+                    logger.debug("Delete with specific IDs detected")
+                    intent = 'delete_email'
                 # Check for confirmation
-                if any(keyword in message_lower for keyword in confirmation_keywords):
+                elif any(keyword in message_lower for keyword in confirmation_keywords):
                     logger.info("CONFIRMATION DETECTED - Using delete_email intent directly")
                     intent = 'delete_email'
                 # Check for cancellation
@@ -338,9 +342,22 @@ Return only the search terms, nothing else."""
             ).limit(5).all()
             
             if emails:
-                response = f"I found {len(emails)} email(s) matching '{search_query}':\n\n"
+                response = f"""<div class="mb-3">I found {len(emails)} email(s) matching '{search_query}':</div>
+<div class="space-y-2">"""
                 for email in emails:
-                    response += f"• {email.subject} - from {email.sender_name or email.sender}\n"
+                    # Create clickable email cards
+                    response += f"""
+<div class="bg-white p-3 rounded border hover:shadow-sm cursor-pointer transition-shadow" 
+     onclick="window.selectEmail('{email.id}')" 
+     style="cursor: pointer;">
+    <div class="flex justify-between items-start mb-1">
+        <span class="font-medium text-sm text-blue-600 hover:text-blue-800">{email.sender_name or email.sender}</span>
+        <span class="text-xs text-gray-500">{email.received_at.strftime('%Y-%m-%d %H:%M') if email.received_at else ''}</span>
+    </div>
+    <div class="text-sm font-medium text-gray-800">{email.subject or '(No subject)'}</div>
+    <div class="text-xs text-gray-600 mt-1">{(email.snippet or '')[:100]}...</div>
+</div>"""
+                response += "</div>"
             else:
                 response = f"No emails found matching '{search_query}'."
             
@@ -469,6 +486,38 @@ Return as JSON with keys: title, description, priority (high/medium/low), due_da
         logger.info(f"Message: {message}")
         logger.info(f"Has context: {bool(context)}")
         
+        # Check if this is a confirmation with specific IDs
+        if message.startswith('confirm delete with ids:'):
+            try:
+                # Extract the JSON array of IDs
+                import json
+                ids_json = message.replace('confirm delete with ids:', '').strip()
+                email_ids = json.loads(ids_json)
+                
+                logger.info(f"Confirming deletion of specific IDs: {email_ids}")
+                
+                # Get original params if available
+                params = context.get('pending_delete', {}).get('params')
+                
+                # Execute deletion using simple handler with params verification
+                result = self.simple_handler.execute_deletion(
+                    db, user, email_ids, self.gmail_service, params
+                )
+                
+                # Clear pending delete
+                context.pop('pending_delete', None)
+                
+                if result['success']:
+                    msg = f"✅ Successfully moved {result['success_count']} emails to trash."
+                    if result.get('skipped_count', 0) > 0:
+                        msg += f" (Skipped {result['skipped_count']} emails that didn't match criteria)"
+                    return msg, ["emails_moved_to_trash"]
+                else:
+                    return f"⚠️ {result.get('message', 'Some emails could not be moved to trash.')}", []
+            except Exception as e:
+                logger.error(f"Error parsing email IDs: {e}")
+                return "Error processing selected emails. Please try again.", []
+        
         # Check if this is a confirmation of a previous delete request
         if context.get('pending_delete'):
             # User is confirming deletion
@@ -486,20 +535,26 @@ Return as JSON with keys: title, description, priority (high/medium/low), due_da
             if is_confirmed:
                 pending = context['pending_delete']
                 email_ids = pending.get('email_ids', [])
+                params = pending.get('params')  # Get original search params
                 
                 if not email_ids:
                     return "No emails selected. Please try again.", []
                 
-                # Execute deletion using simple handler
+                logger.info(f"Confirming deletion of {len(email_ids)} emails with params: {params}")
+                
+                # Execute deletion using simple handler with params verification
                 result = self.simple_handler.execute_deletion(
-                    db, user, email_ids, self.gmail_service
+                    db, user, email_ids, self.gmail_service, params
                 )
                 
                 # Clear pending delete
                 context.pop('pending_delete', None)
                 
                 if result['success']:
-                    return f"✅ Successfully moved {result['success_count']} emails to trash.", ["emails_moved_to_trash"]
+                    msg = f"✅ Successfully moved {result['success_count']} emails to trash."
+                    if result.get('skipped_count', 0) > 0:
+                        msg += f" (Skipped {result['skipped_count']} emails that didn't match criteria)"
+                    return msg, ["emails_moved_to_trash"]
                 else:
                     return f"⚠️ {result.get('message', 'Some emails could not be moved to trash.')}", []
             else:
@@ -511,8 +566,14 @@ Return as JSON with keys: title, description, priority (high/medium/low), due_da
         if not params:
             return "I couldn't understand what emails you want to delete. Please specify the sender, time period, or count.", []
         
-        # Find emails based on parameters
-        emails = self.simple_handler.find_emails_to_delete(db, user, params)
+        # Find emails based on parameters - search directly from Gmail/Outlook
+        # This ensures we get ALL emails, not just those synced to local database
+        try:
+            emails = self.simple_handler.find_emails_to_delete_from_provider(db, user, params, self.gmail_service)
+            logger.info(f"Found {len(emails)} emails from Gmail provider")
+        except Exception as e:
+            logger.warning(f"Failed to search Gmail directly: {e}, falling back to local database")
+            emails = self.simple_handler.find_emails_to_delete(db, user, params)
         
         if not emails:
             sender = params.get('sender', 'specified criteria')
@@ -521,15 +582,21 @@ Return as JSON with keys: title, description, priority (high/medium/low), due_da
         # Create preview HTML
         preview_html = self.simple_handler.create_preview_html(emails)
         
-        # Store email IDs in context for confirmation
+        # Store email IDs AND original search params in context for confirmation
         context['pending_delete'] = {
             'email_ids': [str(email.id) for email in emails],
             'count': len(emails),
+            'params': params,  # Store the original search parameters
             'timestamp': datetime.utcnow().isoformat()
         }
         
-        logger.info(f"Showing preview for {len(emails)} emails")
-        logger.info(f"Email IDs: {context['pending_delete']['email_ids'][:5]}...")
+        # Enhanced logging to verify correct emails
+        logger.info(f"Showing preview for {len(emails)} emails matching: {params}")
+        if emails:
+            logger.info(f"First 3 emails in preview:")
+            for i, email in enumerate(emails[:3]):
+                logger.info(f"  {i+1}. ID={email.id}, From={email.sender_name or email.sender}, Subject={email.subject[:50]}")
+        logger.info(f"Stored {len(context['pending_delete']['email_ids'])} email IDs for potential deletion with params: {params}")
         
         return preview_html, ["confirmation_required"]
     

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 import logging
 
 from core.database import Email, User
+from core.urgency_detector import UrgencyDetector
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -163,6 +164,17 @@ class GmailService:
                             email_obj = Email(user_id=user.id, **email_data)
                             db.add(email_obj)
                         
+                        # Run urgency detection on new emails
+                        if not existing:
+                            urgency_detector = UrgencyDetector(db)
+                            is_urgent, score, reason = urgency_detector.should_mark_urgent(email_obj, user)
+                            
+                            if is_urgent:
+                                email_obj.is_urgent = True
+                                email_obj.urgency_score = score
+                                email_obj.urgency_reason = reason
+                                logger.info(f"Email marked as urgent: {email_obj.subject} (score: {score})")
+                        
                         emails.append(email_obj)
                         
                     except Exception as e:
@@ -310,9 +322,9 @@ class GmailService:
         if 'payload' in message and 'headers' in message['payload']:
             headers = {h['name']: h['value'] for h in message['payload']['headers']}
         
-        # Parse timestamp
+        # Parse timestamp - Gmail provides timestamps in milliseconds since epoch (UTC)
         timestamp = int(message.get('internalDate', 0)) / 1000
-        received_at = datetime.fromtimestamp(timestamp) if timestamp else datetime.now()
+        received_at = datetime.utcfromtimestamp(timestamp) if timestamp else datetime.utcnow()
         
         # Check if email is trashed
         labels = message.get('labelIds', [])
@@ -350,9 +362,9 @@ class GmailService:
         is_starred = 'STARRED' in labels
         is_trashed = 'TRASH' in labels  # Check if email is in Gmail trash
         
-        # Parse timestamp
+        # Parse timestamp - Gmail provides timestamps in milliseconds since epoch (UTC)
         timestamp = int(message.get('internalDate', 0)) / 1000
-        received_at = datetime.fromtimestamp(timestamp) if timestamp else None
+        received_at = datetime.utcfromtimestamp(timestamp) if timestamp else None
         
         # Set deleted_at if email is in trash
         deleted_at = datetime.utcnow() if is_trashed else None
@@ -496,6 +508,17 @@ class GmailService:
             return True
         except Exception as e:
             logger.error(f"Error restoring email from trash: {e}")
+            return False
+    
+    def permanently_delete(self, user: User, email_id: str) -> bool:
+        """Permanently delete an email from Gmail (cannot be recovered)"""
+        try:
+            service = self.get_service(user)
+            service.users().messages().delete(userId='me', id=email_id).execute()
+            logger.info(f"Permanently deleted email {email_id} from Gmail")
+            return True
+        except Exception as e:
+            logger.error(f"Error permanently deleting email from Gmail: {e}")
             return False
     
     def create_label(self, user: User, label_name: str) -> Optional[str]:

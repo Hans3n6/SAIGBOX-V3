@@ -20,7 +20,7 @@ from api.auth import (get_current_user, get_or_create_user, create_access_token,
                       get_microsoft_user_info, verify_oauth_state,
                       store_oauth_tokens, create_refresh_token)
 from api.models import *
-from api.routes import emails, actions, huddles, trash, saig, intelligence
+from api.routes import emails, actions, huddles, trash, saig, intelligence, urgent
 from api.middleware import AuthMiddleware
 from core.database import get_db, User, Email
 from core.gmail_service import GmailService
@@ -64,6 +64,7 @@ app.include_router(huddles.router, prefix="/api/huddles", tags=["huddles"])
 app.include_router(trash.router, prefix="/api/trash", tags=["trash"])
 app.include_router(saig.router, prefix="/api/saig", tags=["saig"])
 app.include_router(intelligence.router, prefix="/api/intelligence", tags=["intelligence"])
+app.include_router(urgent.router, prefix="/api/urgent", tags=["urgent"])
 
 # Gmail service instance
 gmail_service = GmailService()
@@ -428,12 +429,15 @@ async def trigger_sync(
         if failed_count > 0:
             logger.warning(f"Sync had {failed_count} failed emails for user {current_user.email}")
         
+        synced_count = len(result.get('emails', []))
+        logger.info(f"Sync completed for {current_user.email}: {synced_count} emails synced, has_more={bool(result.get('next_page_token'))}")
+        
         return {
             "success": True,
-            "emails_synced": len(result.get('emails', [])),
+            "emails_synced": synced_count,
             "has_more": bool(result.get('next_page_token')),
             "failed": failed_count,
-            "message": f"Synced {len(result.get('emails', []))} emails" + (f" ({failed_count} failed)" if failed_count else "")
+            "message": f"Synced {synced_count} emails" + (f" ({failed_count} failed)" if failed_count else "")
         }
     except HTTPException:
         raise  # Re-raise HTTP exceptions
