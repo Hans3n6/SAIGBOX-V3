@@ -11,7 +11,7 @@ import httpx
 from sqlalchemy.orm import Session
 import logging
 
-from core.database import Email, User, OAuthToken
+from core.database import Email, User
 from core.urgency_detector import UrgencyDetector
 
 logging.basicConfig(level=logging.INFO)

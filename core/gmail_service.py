@@ -11,6 +11,7 @@ import logging
 
 from core.database import Email, User
 from core.urgency_detector import UrgencyDetector
+from core.action_item_creator import ActionItemCreator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -173,7 +174,15 @@ class GmailService:
                                 email_obj.is_urgent = True
                                 email_obj.urgency_score = score
                                 email_obj.urgency_reason = reason
+                                email_obj.urgency_analyzed_at = datetime.utcnow()
                                 logger.info(f"Email marked as urgent: {email_obj.subject} (score: {score})")
+                                
+                                # Create action item if very urgent
+                                if score >= 70:
+                                    action_creator = ActionItemCreator(db)
+                                    action_item = action_creator.create_from_urgent_email(email_obj, user)
+                                    if action_item:
+                                        logger.info(f"Auto-created action item for urgent email: {email_obj.subject}")
                         
                         emails.append(email_obj)
                         

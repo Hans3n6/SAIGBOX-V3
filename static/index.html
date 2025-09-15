@@ -210,6 +210,55 @@
         a.nav-link {
             outline: none !important;
         }
+        
+        /* Line clamp utility for action items */
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.4;
+            max-height: 2.8em;
+        }
+        
+        /* Action item card improved styling */
+        .action-item-card {
+            transition: all 0.2s ease;
+            border: 1px solid #e5e7eb;
+        }
+        .action-item-card:hover {
+            transform: translateY(-1px);
+        }
+        .action-item-card.has-email {
+            cursor: pointer;
+        }
+        
+        /* Priority badge colors for better visibility */
+        .priority-high {
+            background-color: #fee2e2;
+            color: #dc2626;
+        }
+        .priority-medium {
+            background-color: #fef3c7;
+            color: #d97706;
+        }
+        .priority-low {
+            background-color: #d1fae5;
+            color: #059669;
+        }
+        
+        /* Ensure text truncation works properly */
+        .truncate {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        /* Ensure min-width works for flex items */
+        .min-w-0 {
+            min-width: 0;
+        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -1734,6 +1783,199 @@
         }
         
         // Make selectEmail globally accessible for onclick handlers
+        // Function to open email from action item in a modal
+        window.openEmailFromAction = async function(emailId) {
+            try {
+                // Find email from all loaded emails first
+                let email = allLoadedEmails.find(e => e.id === emailId);
+                
+                if (!email) {
+                    // If not found locally, fetch from API
+                    const response = await fetch(`/api/emails/${emailId}`, {
+                        headers: authToken !== 'session' ? {
+                            'Authorization': `Bearer ${authToken}`
+                        } : {},
+                        credentials: 'include'
+                    });
+                    
+                    if (response.ok) {
+                        email = await response.json();
+                        // Add to loaded emails for future reference
+                        allLoadedEmails.push(email);
+                    } else {
+                        showNotification('Failed to load email', 'error');
+                        return;
+                    }
+                }
+                
+                // Show the email in a modal
+                showEmailModal(email);
+                
+            } catch (error) {
+                console.error('Error loading email:', error);
+                showNotification('Error loading email', 'error');
+            }
+        }
+        
+        // Function to show email in modal
+        window.showEmailModal = function(email) {
+            // Create modal HTML
+            const modalHtml = `
+                <div id="email-view-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background-color: rgba(0, 0, 0, 0.5);">
+                    <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+                        <!-- Modal Header -->
+                        <div class="border-b px-6 py-4 flex justify-between items-start">
+                            <div class="flex-1 min-w-0 pr-4">
+                                <h2 class="text-xl font-semibold truncate">${email.subject || '(No subject)'}</h2>
+                                <div class="text-sm text-gray-600 mt-1">
+                                    <span class="font-medium">${email.sender_name || email.sender}</span>
+                                    <span class="text-gray-400 ml-2">${formatDate(email.received_at)}</span>
+                                </div>
+                            </div>
+                            <button onclick="closeEmailModal()" class="text-gray-400 hover:text-gray-600">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+                        
+                        <!-- Modal Body -->
+                        <div class="flex-1 overflow-y-auto px-6 py-4">
+                            <!-- Email metadata -->
+                            <div class="mb-4 pb-4 border-b text-sm text-gray-600">
+                                ${email.recipients ? `<div class="mb-1"><strong>To:</strong> ${Array.isArray(email.recipients) ? email.recipients.join(', ') : email.recipients}</div>` : ''}
+                                ${email.cc && email.cc.length > 0 ? `<div class="mb-1"><strong>Cc:</strong> ${email.cc.join(', ')}</div>` : ''}
+                                ${email.is_urgent ? `
+                                    <div class="mt-2">
+                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-800">
+                                            <i class="fas fa-exclamation-circle mr-1"></i>
+                                            Urgent (Score: ${email.urgency_score || 0})
+                                        </span>
+                                        ${email.urgency_reason ? `<span class="ml-2 text-xs text-gray-500">${email.urgency_reason}</span>` : ''}
+                                    </div>
+                                ` : ''}
+                            </div>
+                            
+                            <!-- Email content -->
+                            <div class="prose max-w-none" id="modal-email-content">
+                                <!-- Content will be inserted here -->
+                            </div>
+                        </div>
+                        
+                        <!-- Modal Footer -->
+                        <div class="border-t px-6 py-4 flex flex-wrap gap-3">
+                            <button onclick="replyToEmailFromModal('${email.id}')" class="gradient-bg text-white px-4 py-2 rounded-lg hover:opacity-90">
+                                <i class="fas fa-reply mr-2"></i>Reply
+                            </button>
+                            <button onclick="forwardEmailFromModal('${email.id}')" class="px-4 py-2 rounded-lg hover:opacity-90" style="background-color: #5fa55f; color: white;">
+                                <i class="fas fa-share mr-2"></i>Forward
+                            </button>
+                            <button onclick="createActionFromEmailModal('${email.id}')" class="px-4 py-2 rounded-lg hover:opacity-90" style="border: 1px solid #7fc97f; color: #7fc97f; background-color: rgba(127, 201, 127, 0.1);">
+                                <i class="fas fa-tasks mr-2"></i>Create Action
+                            </button>
+                            <button onclick="closeEmailModal()" class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Add modal to body
+            const modalContainer = document.createElement('div');
+            modalContainer.innerHTML = modalHtml;
+            document.body.appendChild(modalContainer);
+            
+            // Insert email content safely
+            const contentEl = document.getElementById('modal-email-content');
+            if (contentEl) {
+                if (email.body_html) {
+                    // Sanitize HTML
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = email.body_html;
+                    
+                    // Remove scripts and event handlers
+                    const scripts = tempDiv.getElementsByTagName('script');
+                    for (let i = scripts.length - 1; i >= 0; i--) {
+                        scripts[i].remove();
+                    }
+                    
+                    const allElements = tempDiv.getElementsByTagName('*');
+                    for (let el of allElements) {
+                        for (let attr of el.attributes) {
+                            if (attr.name.startsWith('on')) {
+                                el.removeAttribute(attr.name);
+                            }
+                        }
+                    }
+                    
+                    contentEl.innerHTML = tempDiv.innerHTML;
+                } else if (email.body_text) {
+                    const escapedText = email.body_text
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#039;')
+                        .replace(/\n/g, '<br>');
+                    contentEl.innerHTML = `<p>${escapedText}</p>`;
+                } else if (email.snippet) {
+                    const escapedSnippet = email.snippet
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#039;');
+                    contentEl.innerHTML = `<p>${escapedSnippet}</p>`;
+                }
+            }
+            
+            // Add escape key handler
+            const escHandler = (e) => {
+                if (e.key === 'Escape') {
+                    closeEmailModal();
+                    document.removeEventListener('keydown', escHandler);
+                }
+            };
+            document.addEventListener('keydown', escHandler);
+            
+            // Store email for modal actions
+            window.modalEmail = email;
+        }
+        
+        // Function to close email modal
+        window.closeEmailModal = function() {
+            const modal = document.getElementById('email-view-modal');
+            if (modal) {
+                modal.parentElement.remove();
+                window.modalEmail = null;
+            }
+        }
+        
+        // Modal action functions
+        window.replyToEmailFromModal = function(emailId) {
+            closeEmailModal();
+            // Switch to inbox and open reply
+            switchView('inbox');
+            setTimeout(() => {
+                window.selectEmail(emailId);
+                setTimeout(() => replyToEmail(emailId), 100);
+            }, 200);
+        }
+        
+        window.forwardEmailFromModal = function(emailId) {
+            closeEmailModal();
+            // Switch to inbox and open forward
+            switchView('inbox');
+            setTimeout(() => {
+                window.selectEmail(emailId);
+                setTimeout(() => forwardEmail(emailId), 100);
+            }, 200);
+        }
+        
+        window.createActionFromEmailModal = function(emailId) {
+            closeEmailModal();
+            createActionFromEmail(emailId);
+        }
+        
         window.selectEmail = async function(emailId) {
             selectedEmailId = emailId;
             
@@ -2344,28 +2586,93 @@
                 return;
             }
             
+            // Helper to strip HTML and decode entities
+            const stripHtml = (html) => {
+                const tmp = document.createElement("DIV");
+                tmp.innerHTML = html || '';
+                return tmp.textContent || tmp.innerText || '';
+            };
+            
+            // Helper to truncate text
+            const truncateText = (text, maxLength) => {
+                const cleaned = stripHtml(text);
+                if (cleaned.length <= maxLength) return cleaned;
+                return cleaned.substring(0, maxLength) + '...';
+            };
+            
+            // Helper to get priority label
+            const getPriorityLabel = (priority) => {
+                switch(priority) {
+                    case 1: return 'High';
+                    case 2: return 'Medium';
+                    case 3: return 'Low';
+                    default: return 'Medium';
+                }
+            };
+            
+            // Helper to get priority color
+            const getPriorityColor = (priority) => {
+                switch(priority) {
+                    case 1: return 'text-red-600 bg-red-50';
+                    case 2: return 'text-yellow-600 bg-yellow-50';
+                    case 3: return 'text-green-600 bg-green-50';
+                    default: return 'text-gray-600 bg-gray-50';
+                }
+            };
+            
             listEl.innerHTML = actions.map(action => `
-                <div class="bg-white p-4 rounded-lg shadow">
-                    <div class="flex justify-between items-start">
-                        <div class="flex-1">
-                            <h4 class="font-medium ${action.status === 'completed' ? 'line-through text-gray-500' : ''}">${action.title}</h4>
-                            ${action.description ? `<p class="text-sm text-gray-600 mt-1">${action.description}</p>` : ''}
-                            <div class="flex items-center space-x-4 mt-2 text-xs text-gray-500">
-                                <span class="priority-${action.priority}">
-                                    <i class="fas fa-flag mr-1"></i>${action.priority}
-                                </span>
-                                ${action.due_date ? `<span><i class="fas fa-clock mr-1"></i>${formatDate(action.due_date)}</span>` : ''}
+                <div class="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden ${action.email_id ? 'cursor-pointer' : ''}" 
+                     ${action.email_id ? `onclick="openEmailFromAction('${action.email_id}')"` : ''}>
+                    <div class="p-4">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="flex-1 min-w-0 pr-4">
+                                <h4 class="font-medium text-sm ${action.status === 'completed' ? 'line-through text-gray-400' : 'text-gray-900'} truncate">
+                                    ${truncateText(action.title, 60)}
+                                </h4>
+                                ${action.description ? `
+                                    <p class="text-xs text-gray-600 mt-1 line-clamp-2">
+                                        ${truncateText(action.description, 120)}
+                                    </p>
+                                ` : ''}
+                            </div>
+                            <div class="flex items-center space-x-2 flex-shrink-0">
+                                ${action.status !== 'completed' ? `
+                                    <button onclick="event.stopPropagation(); completeAction('${action.id}')" 
+                                            class="text-green-500 hover:text-green-600 p-1" 
+                                            title="Mark as complete">
+                                        <i class="fas fa-check text-sm"></i>
+                                    </button>
+                                ` : ''}
+                                <button onclick="event.stopPropagation(); deleteAction('${action.id}')" 
+                                        class="text-red-400 hover:text-red-500 p-1"
+                                        title="Delete action">
+                                    <i class="fas fa-trash text-sm"></i>
+                                </button>
                             </div>
                         </div>
-                        <div class="flex space-x-2">
-                            ${action.status !== 'completed' ? `
-                                <button onclick="completeAction('${action.id}')" style="color: #7fc97f;" onmouseover="this.style.color='#6db56d'" onmouseout="this.style.color='#7fc97f'">
-                                    <i class="fas fa-check"></i>
-                                </button>
+                        
+                        <div class="flex items-center justify-between mt-3">
+                            <div class="flex items-center space-x-3 text-xs">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded ${getPriorityColor(action.priority)}">
+                                    <i class="fas fa-flag mr-1 text-xs"></i>
+                                    ${getPriorityLabel(action.priority)}
+                                </span>
+                                ${action.due_date ? `
+                                    <span class="text-gray-500">
+                                        <i class="fas fa-clock mr-1"></i>${formatDate(action.due_date)}
+                                    </span>
+                                ` : ''}
+                            </div>
+                            ${action.auto_created ? `
+                                <span class="text-xs text-blue-600" title="Auto-created from urgent email">
+                                    <i class="fas fa-magic"></i>
+                                </span>
                             ` : ''}
-                            <button onclick="deleteAction('${action.id}')" class="text-red-500 hover:text-red-600">
-                                <i class="fas fa-trash"></i>
-                            </button>
+                            ${action.email_id ? `
+                                <span class="text-xs text-gray-400" title="Click to view email">
+                                    <i class="fas fa-envelope"></i>
+                                </span>
+                            ` : ''}
                         </div>
                     </div>
                 </div>
