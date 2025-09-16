@@ -237,8 +237,21 @@
             try {
                 // Get OAuth URL from backend
                 const response = await fetch('/api/auth/microsoft/url');
-                const data = await response.json();
                 
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    hideLoading();
+                    
+                    // Check if Microsoft OAuth is not configured
+                    if (errorData.detail === 'Microsoft OAuth not configured') {
+                        showError('Microsoft sign-in is not available yet. Please use Google sign-in.');
+                    } else {
+                        showError('Failed to initialize Microsoft authentication');
+                    }
+                    return;
+                }
+                
+                const data = await response.json();
                 if (data.url) {
                     // Redirect to Microsoft OAuth
                     window.location.href = data.url;
