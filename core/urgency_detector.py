@@ -49,7 +49,7 @@ class UrgencyDetector:
     
     def __init__(self, db: Session = None):
         self.db = db
-        self.urgency_threshold = int(os.getenv('URGENCY_THRESHOLD', '40'))
+        self.urgency_threshold = int(os.getenv('URGENCY_THRESHOLD', '60'))
     
     def calculate_urgency_score(self, email: Email, user_patterns: List[UrgencyPattern] = None) -> Tuple[int, str]:
         """
