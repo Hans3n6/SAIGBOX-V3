@@ -1,13 +1,50 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime, timedelta
+import logging
 
 from api.auth import get_current_user
 from api.models import *
 from core.database import get_db, User, ActionItem as ActionItemModel, Email
+from core.action_extractor import action_extractor
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def build_action_item_response(item: ActionItemModel, email_cache: Dict[str, Email] = None) -> ActionItem:
+    """Build ActionItem response with email info"""
+    priority_map = {1: "high", 2: "medium", 3: "low"}
+    priority_str = priority_map.get(item.priority, "medium")
+    status_str = item.status if item.status in ["pending", "completed", "overdue"] else "pending"
+
+    # Get email info if available
+    email_subject = None
+    email_sender = None
+    if item.email_id and email_cache and item.email_id in email_cache:
+        email = email_cache[item.email_id]
+        email_subject = email.subject
+        email_sender = email.sender_name or email.sender
+
+    return ActionItem(
+        id=item.id,
+        user_id=item.user_id,
+        email_id=item.email_id,
+        email_subject=email_subject,
+        email_sender=email_sender,
+        title=item.title,
+        description=item.description,
+        due_date=item.due_date,
+        priority=ActionItemPriority(priority_str),
+        status=ActionItemStatus(status_str),
+        auto_created=item.auto_created or False,
+        confidence_score=item.confidence_score,
+        source_quote=item.source_quote,
+        created_at=item.created_at,
+        completed_at=item.completed_at,
+        updated_at=item.updated_at
+    )
 
 @router.get("/", response_model=List[ActionItem])
 async def list_action_items(
@@ -50,33 +87,23 @@ async def list_action_items(
     if overdue_items:
         db.commit()
     
-    # Get all items
-    items = query.order_by(ActionItemModel.priority, ActionItemModel.created_at).all()
-    
-    # Convert to response model
-    result = []
-    for item in items:
-        # Map numeric priority to enum string
-        priority_map = {1: "high", 2: "medium", 3: "low"}
-        priority_str = priority_map.get(item.priority, "medium")
-        
-        # Map status string to enum
-        status_str = item.status if item.status in ["pending", "completed", "overdue"] else "pending"
-        
-        result.append(ActionItem(
-            id=item.id,
-            user_id=item.user_id,
-            email_id=item.email_id,
-            title=item.title,
-            description=item.description,
-            due_date=item.due_date,
-            priority=ActionItemPriority(priority_str),
-            status=ActionItemStatus(status_str),
-            created_at=item.created_at,
-            completed_at=item.completed_at,
-            updated_at=item.updated_at
-        ))
-    
+    # Get all items, ordered by email_id to group by email, then by priority
+    items = query.order_by(
+        ActionItemModel.email_id.desc(),  # Group by email
+        ActionItemModel.priority,          # Then by priority
+        ActionItemModel.created_at.desc()  # Then by creation date
+    ).all()
+
+    # Fetch email info for all related emails
+    email_ids = list(set(item.email_id for item in items if item.email_id))
+    email_cache = {}
+    if email_ids:
+        emails = db.query(Email).filter(Email.id.in_(email_ids)).all()
+        email_cache = {email.id: email for email in emails}
+
+    # Convert to response model with email info
+    result = [build_action_item_response(item, email_cache) for item in items]
+
     return result
 
 @router.get("/{action_id}", response_model=ActionItem)
@@ -263,38 +290,92 @@ async def extract_action_items(
         Email.id == email_id,
         Email.user_id == current_user.id
     ).first()
-    
+
     if not email:
         raise HTTPException(status_code=404, detail="Email not found")
-    
-    # For now, create a sample action item
-    # In production, this would use AI to extract real action items
-    sample_item = ActionItemModel(
-        user_id=current_user.id,
-        email_id=email_id,
-        title=f"Follow up on: {email.subject[:50]}",
-        description=f"Action item extracted from email",
-        priority=2,
-        status="pending"
+
+    # Use AI to extract action items
+    created_items = await action_extractor.create_action_items(
+        db, email, current_user
     )
-    
-    db.add(sample_item)
+
+    if not created_items:
+        # Return empty list - no actionable items found
+        return []
+
+    # Convert to response model
+    priority_map = {1: ActionItemPriority.HIGH, 2: ActionItemPriority.MEDIUM, 3: ActionItemPriority.LOW}
+    status_map = {
+        'pending': ActionItemStatus.PENDING,
+        'completed': ActionItemStatus.COMPLETED,
+        'overdue': ActionItemStatus.OVERDUE
+    }
+
+    result = []
+    for item in created_items:
+        result.append(ActionItem(
+            id=item.id,
+            user_id=item.user_id,
+            email_id=item.email_id,
+            title=item.title,
+            description=item.description,
+            due_date=item.due_date,
+            priority=priority_map.get(item.priority, ActionItemPriority.MEDIUM),
+            status=status_map.get(item.status, ActionItemStatus.PENDING),
+            created_at=item.created_at,
+            completed_at=item.completed_at,
+            updated_at=item.updated_at
+        ))
+
+    return result
+
+@router.post("/extract-all")
+async def extract_all_action_items(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Extract action items from all urgent emails that haven't been processed yet"""
+    # Find urgent emails without auto-created actions
+    urgent_emails = db.query(Email).filter(
+        Email.user_id == current_user.id,
+        Email.is_urgent == True,
+        Email.auto_actions_created != True,
+        Email.deleted_at.is_(None)
+    ).all()
+
+    if not urgent_emails:
+        return {
+            "success": True,
+            "message": "No unprocessed urgent emails found",
+            "emails_processed": 0,
+            "actions_created": 0
+        }
+
+    total_actions = 0
+    processed_emails = 0
+
+    for email in urgent_emails:
+        try:
+            created_items = await action_extractor.create_action_items(
+                db, email, current_user
+            )
+            total_actions += len(created_items)
+
+            # Mark email as processed
+            email.auto_actions_created = True
+            email.action_count = len(created_items)
+            processed_emails += 1
+        except Exception as e:
+            logger.error(f"Error extracting actions from email {email.id}: {e}")
+
     db.commit()
-    db.refresh(sample_item)
-    
-    return [ActionItem(
-        id=sample_item.id,
-        user_id=sample_item.user_id,
-        email_id=sample_item.email_id,
-        title=sample_item.title,
-        description=sample_item.description,
-        due_date=sample_item.due_date,
-        priority=ActionItemPriority.MEDIUM,
-        status=ActionItemStatus.PENDING,
-        created_at=sample_item.created_at,
-        completed_at=sample_item.completed_at,
-        updated_at=sample_item.updated_at
-    )]
+
+    return {
+        "success": True,
+        "message": f"Processed {processed_emails} emails, created {total_actions} action items",
+        "emails_processed": processed_emails,
+        "actions_created": total_actions
+    }
 
 @router.put("/{action_id}/complete")
 async def complete_action_item(
@@ -307,13 +388,13 @@ async def complete_action_item(
         ActionItemModel.id == action_id,
         ActionItemModel.user_id == current_user.id
     ).first()
-    
+
     if not item:
         raise HTTPException(status_code=404, detail="Action item not found")
-    
+
     item.status = "completed"
     item.completed_at = datetime.utcnow()
     item.updated_at = datetime.utcnow()
     db.commit()
-    
+
     return {"success": True, "message": "Action item completed"}

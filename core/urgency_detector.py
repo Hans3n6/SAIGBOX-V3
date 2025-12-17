@@ -288,9 +288,9 @@ class UrgencyDetector:
             # If date is in the past, assume next year
             if date < datetime.now():
                 date = datetime(current_year + 1, month, day)
-            
+
             return date
-        except:
+        except (ValueError, TypeError):
             return None
     
     def _parse_end_of(self, period: str) -> Optional[datetime]:

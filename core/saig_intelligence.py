@@ -265,7 +265,7 @@ class SAIGIntelligence:
                 try:
                     # This is simplified - would need proper date parsing
                     return datetime.utcnow() + timedelta(days=7)  # Default to a week from now
-                except:
+                except (ValueError, TypeError):
                     pass
         
         return None

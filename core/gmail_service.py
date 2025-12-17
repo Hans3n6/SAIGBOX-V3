@@ -54,21 +54,22 @@ class GmailService:
     
     def get_service(self, user: User):
         """Get Gmail service using user's OAuth tokens"""
+        using_legacy = False
+
         # Use OAuth tokens from the user's OAuth flow
         if user.oauth_access_token:
-            # User authenticated via OAuth (Google/Microsoft)
             access_token = user.oauth_access_token
             refresh_token = user.oauth_refresh_token
-            logger.info(f"Using OAuth tokens for user {user.email}")
         elif user.access_token:
-            # Legacy support
+            # Legacy fallback - migrate to new fields on next refresh
             access_token = user.access_token
             refresh_token = user.refresh_token
-            logger.info(f"Using legacy tokens for user {user.email}")
+            using_legacy = True
+            logger.warning(f"User {user.email} using legacy tokens - will migrate on refresh")
         else:
             logger.error(f"User {user.email} has no access token")
             raise ValueError("User has no access token. Please re-authenticate.")
-        
+
         credentials = Credentials(
             token=access_token,
             refresh_token=refresh_token,
@@ -77,17 +78,25 @@ class GmailService:
             client_secret=self.client_secret,
             scopes=self.scopes
         )
-        
+
         # Check if token needs refresh
         if credentials.expired and credentials.refresh_token:
             from google.auth.transport.requests import Request
             credentials.refresh(Request())
-            
-            # Update stored tokens
+
+            # Update to new OAuth fields (migrates legacy users)
             user.oauth_access_token = credentials.token
+            user.oauth_refresh_token = credentials.refresh_token
             if credentials.expiry:
                 user.oauth_token_expires = credentials.expiry
-        
+
+            # Clear legacy fields after migration
+            if using_legacy:
+                user.access_token = None
+                user.refresh_token = None
+                user.token_expiry = None
+                logger.info(f"Migrated {user.email} from legacy to OAuth token fields")
+
         return build('gmail', 'v1', credentials=credentials)
     
     def fetch_emails(self, db: Session, user: User, max_results: int = 50, page_token: str = None) -> Dict[str, Any]:
@@ -553,7 +562,7 @@ class GmailService:
                     for label in labels.get('labels', []):
                         if label['name'] == label_name:
                             return label['id']
-                except:
+                except (KeyError, TypeError):
                     pass
             logger.error(f"Error creating label: {e}")
             return None

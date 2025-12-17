@@ -50,7 +50,8 @@ async def get_urgent_emails(
                 try:
                     email_model = Email.model_validate(email)
                     result.append(email_model)
-                except:
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"Validation error for email: {e}")
                     continue
         
         return {

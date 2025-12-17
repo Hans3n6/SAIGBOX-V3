@@ -211,7 +211,7 @@ class ActionOptimizer:
                     # Ensure it's in the future
                     if deadline > datetime.now():
                         return deadline
-                except:
+                except (ValueError, TypeError):
                     continue
         
         # Check for relative dates

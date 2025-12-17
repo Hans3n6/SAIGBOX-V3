@@ -18,21 +18,44 @@ logger = logging.getLogger(__name__)
 
 class SAIGAssistant:
     def __init__(self):
-        # Load Anthropic API key from environment
-        self.anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
-        
-        if not self.anthropic_api_key:
-            logger.warning("ANTHROPIC_API_KEY not set. SAIG functionality will be limited.")
-        else:
-            logger.info("SAIG Assistant initialized with Anthropic API")
-        
+        # Check if using Bedrock or direct Anthropic API
+        self.use_bedrock = os.getenv('USE_BEDROCK', 'true').lower() == 'true'
+
+        if self.use_bedrock:
+            # Initialize AWS Bedrock client
+            try:
+                import boto3
+                self.bedrock_client = boto3.client(
+                    service_name='bedrock-runtime',
+                    region_name=os.getenv('AWS_REGION', 'us-east-1'),
+                    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+                    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
+                )
+                # Bedrock model ID format (using cross-region inference profile)
+                self.model = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+                logger.info("SAIG Assistant initialized with AWS Bedrock")
+            except Exception as e:
+                logger.error(f"Failed to initialize Bedrock: {e}")
+                logger.warning("Falling back to direct Anthropic API")
+                self.use_bedrock = False
+
+        if not self.use_bedrock:
+            # Load Anthropic API key from environment
+            self.anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
+
+            if not self.anthropic_api_key:
+                logger.warning("ANTHROPIC_API_KEY not set. SAIG functionality will be limited.")
+            else:
+                logger.info("SAIG Assistant initialized with Anthropic API")
+
+            self.api_url = "https://api.anthropic.com/v1/messages"
+            self.http_client = httpx.AsyncClient(timeout=30.0)
+            # Use Claude 3.5 Haiku for faster responses
+            self.model = "claude-3-5-haiku-20241022"
+
         self.gmail_service = GmailService()
         self.intelligence = SAIGIntelligence()  # Initialize intelligence module
         self.simple_handler = SimpleEmailHandler()  # Simple email deletion handler
-        self.api_url = "https://api.anthropic.com/v1/messages"
-        self.http_client = httpx.AsyncClient(timeout=30.0)
-        # Use Claude 3.5 Haiku for faster responses
-        self.model = "claude-3-5-haiku-20241022"
     
     async def process_message(self, db: Session, user: User, message: str, 
                              context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -192,41 +215,66 @@ class SAIGAssistant:
         return email_context
     
     async def _call_anthropic(self, prompt: str, max_tokens: int = 300, temperature: float = 0.3) -> str:
-        """Helper method to call Anthropic API with Claude 3.5 Haiku"""
-        if not self.anthropic_api_key:
-            return "Anthropic API not configured. Please set ANTHROPIC_API_KEY in your .env file."
-        
-        try:
-            headers = {
-                "x-api-key": self.anthropic_api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json"
-            }
-            
-            data = {
-                "model": self.model,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "messages": [{"role": "user", "content": prompt}]
-            }
-            
-            response = await self.http_client.post(
-                self.api_url,
-                headers=headers,
-                json=data
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                return result['content'][0]['text']
-            else:
-                error_msg = f"API error: {response.status_code} - {response.text}"
-                logger.error(error_msg)
-                return f"Error calling Anthropic API: {error_msg}"
-                
-        except Exception as e:
-            logger.error(f"Error calling Anthropic API: {e}")
-            return f"Error processing request: {str(e)}"
+        """Helper method to call Anthropic API (via Bedrock or direct)"""
+
+        if self.use_bedrock:
+            # AWS Bedrock call
+            try:
+                request_body = {
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "messages": [{"role": "user", "content": prompt}]
+                }
+
+                response = self.bedrock_client.invoke_model(
+                    modelId=self.model,
+                    body=json.dumps(request_body)
+                )
+
+                response_body = json.loads(response['body'].read())
+                return response_body['content'][0]['text']
+
+            except Exception as e:
+                logger.error(f"Bedrock API error: {e}")
+                return f"Error calling Bedrock API: {str(e)}"
+
+        else:
+            # Direct Anthropic API call
+            if not self.anthropic_api_key:
+                return "Anthropic API not configured. Please set ANTHROPIC_API_KEY in your .env file."
+
+            try:
+                headers = {
+                    "x-api-key": self.anthropic_api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                }
+
+                data = {
+                    "model": self.model,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "messages": [{"role": "user", "content": prompt}]
+                }
+
+                response = await self.http_client.post(
+                    self.api_url,
+                    headers=headers,
+                    json=data
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    return result['content'][0]['text']
+                else:
+                    error_msg = f"API error: {response.status_code} - {response.text}"
+                    logger.error(error_msg)
+                    return f"Error calling Anthropic API: {error_msg}"
+
+            except Exception as e:
+                logger.error(f"Error calling Anthropic API: {e}")
+                return f"Error processing request: {str(e)}"
     
     async def _analyze_intent(self, message: str, context: Dict[str, Any]) -> str:
         # Check for explicit reply intent
@@ -442,7 +490,7 @@ Return as JSON with keys: title, description, priority (high/medium/low), due_da
             if action_data.get('due_date'):
                 try:
                     action.due_date = datetime.fromisoformat(action_data['due_date'])
-                except:
+                except (ValueError, TypeError):
                     pass
             
             db.add(action)
@@ -679,28 +727,63 @@ Keep your response concise and helpful."""
             logger.error(f"Error generating response: {e}")
             return "I'm here to help with your emails. What would you like to do?"
     
-    async def _compose_email(self, db: Session, user: User, message: str, 
+    async def _compose_email(self, db: Session, user: User, message: str,
                             context: Dict[str, Any]) -> tuple:
-        prompt = f"""Extract email composition details from this message: {message!r}
+        prompt = f"""Based on this user request: {message!r}
 
-Extract the following information as JSON:
+Compose a professional email and return it as JSON with the following fields:
 - recipient: email address (required)
 - recipient_name: the recipient's actual name if mentioned (optional, e.g., "John Smith" from "send an email to John Smith at john@example.com")
-- subject: email subject line (required) 
-- message: ONLY the main body content WITHOUT greeting or closing (required). Do NOT include "Dear X", "Hi X", "Sincerely", "Best regards", etc. Just the core message content.
+- subject: a clear, professional email subject line (required)
+- message: the FULL email body content WITHOUT greeting or closing (required). This should be a complete, well-written email body with proper paragraphs, NOT just a rewording of the user's request. Write it as if you're the sender composing a professional email.
 - tone: formal, casual, or professional (default: professional)
 - reply_to_email_id: if this is a reply to a specific email, extract the email ID from context
 
-IMPORTANT: The 'message' field should contain ONLY the main content. Greetings and signatures will be added automatically.
+CRITICAL INSTRUCTIONS FOR THE 'message' FIELD:
+- DO NOT just reword the user's request - COMPOSE an actual professional email body
+- Include relevant context, explanations, and complete sentences
+- Structure it with proper paragraphs if needed
+- Make it sound natural and professional
+- Do NOT include greetings like "Dear X" or closings like "Best regards" - those are added automatically
+- The message should be what goes between the greeting and the signature
 
-If the message doesn't contain enough information, return an error indicating what's missing.
+EXAMPLES:
+User request: "Write an email to john@acme.com asking him to review the Q4 budget"
+BAD message: "asking him to review the Q4 budget"
+GOOD message: "I hope this email finds you well. I wanted to reach out regarding the Q4 budget review. Would you be able to take a look at the attached budget proposal and provide your feedback by end of week? Please let me know if you have any questions or need any additional information."
+
+User request: "Email sarah@tech.com about rescheduling our meeting"
+BAD message: "about rescheduling our meeting"
+GOOD message: "I need to reschedule our meeting that was planned for this Thursday. Something unexpected has come up and I won't be able to make it. Would you be available to meet next Tuesday or Wednesday instead? I apologize for any inconvenience this may cause."
 
 Context: {json.dumps(context, indent=2) if context else "No context"}
-"""
+
+If the request doesn't contain enough information to compose the email, return an error indicating what's missing.
+
+Return ONLY valid JSON, no additional text."""
         
         try:
-            email_json = await self._call_anthropic(prompt, max_tokens=400, temperature=0.3)
-            email_data = json.loads(email_json.strip())
+            email_json = await self._call_anthropic(prompt, max_tokens=800, temperature=0.5)
+
+            # Clean up the response - remove markdown code blocks if present
+            email_json = email_json.strip()
+            if email_json.startswith('```'):
+                # Remove ```json or ``` at start and ``` at end
+                lines = email_json.split('\n')
+                if lines[0].startswith('```'):
+                    lines = lines[1:]
+                if lines[-1].strip() == '```':
+                    lines = lines[:-1]
+                email_json = '\n'.join(lines)
+
+            # Try to extract JSON if it's embedded in text
+            import re
+            json_match = re.search(r'\{.*\}', email_json, re.DOTALL)
+            if json_match:
+                email_json = json_match.group()
+
+            # Parse JSON with strict=False to allow control characters
+            email_data = json.loads(email_json, strict=False)
             
             # Check for required fields
             if not email_data.get('recipient') or not email_data.get('subject') or not email_data.get('message'):
@@ -712,55 +795,87 @@ Context: {json.dumps(context, indent=2) if context else "No context"}
                 return f"I need more information to compose the email. Please provide: {', '.join(missing)}", []
             
             # Generate formatted email with greeting and signature
-            # If recipient_name is provided, create a context with it
-            compose_context = None
-            if email_data.get('recipient_name'):
-                compose_context = {'sender_name': email_data['recipient_name']}
-            elif email_data.get('reply_to_email_id') and context.get('selected_email'):
-                compose_context = context.get('selected_email')
-            
+            # Pass recipient_name directly to the format function
             formatted_email = await self._format_email(
                 user=user,
                 recipient=email_data['recipient'],
                 subject=email_data['subject'],
                 message=email_data['message'],
                 tone=email_data.get('tone', 'professional'),
-                reply_context=compose_context
+                recipient_name=email_data.get('recipient_name')
             )
             
             # Escape the email body for JavaScript
             escaped_body = formatted_email['body'].replace('\\', '\\\\').replace('`', '\\`').replace("'", "\\'").replace('"', '\\"').replace('\n', '\\n')
             
-            # Return email draft with preview
-            response = f"""<div class="text-sm">
-<p><strong>Here's your email draft:</strong></p>
+            # Return email draft with preview (with unique ID for removal)
+            import uuid
+            preview_id = str(uuid.uuid4())
 
-<div class="bg-gray-50 border-l-4 border-blue-400 p-3 my-3 font-mono text-sm">
-<div class="font-semibold mb-2">Email Preview:</div>
-<div class="mb-1"><strong>To:</strong> {email_data['recipient']}</div>
-<div class="mb-3"><strong>Subject:</strong> {email_data['subject']}</div>
-<div class="whitespace-pre-wrap">{formatted_email['body']}</div>
-</div>
+            response = f"""<div id="email-preview-{preview_id}" class="rounded-lg bg-white border shadow-sm overflow-hidden my-3">
+    <!-- Header -->
+    <div class="px-4 py-3 border-b flex items-center justify-between" style="background: linear-gradient(135deg, #7fc97f 0%, #6db56d 100%);">
+        <div class="flex items-center">
+            <i class="fas fa-envelope text-white mr-2"></i>
+            <span class="text-white font-semibold">Email Draft Ready</span>
+        </div>
+        <button onclick="document.getElementById('email-preview-{preview_id}').remove()"
+                class="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-1 transition-colors">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
 
-<p>Would you like me to send this email, or would you like to edit it first?</p>
+    <!-- Email Preview Content -->
+    <div class="p-4">
+        <!-- Metadata -->
+        <div class="space-y-2 mb-4 pb-4 border-b">
+            <div class="flex items-start">
+                <span class="text-gray-500 text-xs font-medium w-16">To:</span>
+                <span class="text-gray-900 text-sm font-medium">{email_data['recipient']}</span>
+            </div>
+            <div class="flex items-start">
+                <span class="text-gray-500 text-xs font-medium w-16">Subject:</span>
+                <span class="text-gray-900 text-sm font-medium">{email_data['subject']}</span>
+            </div>
+        </div>
 
-<div class="mt-4 flex space-x-2">
-    <button onclick="editDraft('{email_data['recipient']}', '{email_data['subject']}', '{escaped_body}')" 
-            class="bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600">
-        ✏️ Edit
-    </button>
-    <button onclick="sendDraftEmail('{email_data['recipient']}', '{email_data['subject']}', '{escaped_body}')" 
-            class="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600">
-        📧 Send
-    </button>
-</div>
+        <!-- Email Body -->
+        <div class="bg-gray-50 rounded-lg p-4 border-l-4 mb-4" style="border-left-color: #7fc97f;">
+            <div class="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{formatted_email['body']}</div>
+        </div>
+
+        <!-- Action Prompt -->
+        <p class="text-sm text-gray-600 mb-4">
+            <i class="fas fa-question-circle mr-1" style="color: #7fc97f;"></i>
+            Would you like to send this email or edit it first?
+        </p>
+
+        <!-- Action Buttons -->
+        <div class="flex space-x-3">
+            <button onclick="sendDraftEmail('{email_data['recipient']}', '{email_data['subject']}', '{escaped_body}', 'email-preview-{preview_id}')"
+                    class="flex-1 text-white px-4 py-2.5 rounded-lg font-medium text-sm transition-all hover:opacity-90 shadow-sm"
+                    style="background: linear-gradient(135deg, #7fc97f 0%, #6db56d 100%);">
+                <i class="fas fa-paper-plane mr-2"></i>Send Now
+            </button>
+            <button onclick="editDraft('{email_data['recipient']}', '{email_data['subject']}', '{escaped_body}', 'email-preview-{preview_id}')"
+                    class="flex-1 bg-white border text-gray-700 px-4 py-2.5 rounded-lg font-medium text-sm transition-colors hover:bg-gray-50 shadow-sm"
+                    style="border-color: #e5e7eb;">
+                <i class="fas fa-edit mr-2"></i>Edit Draft
+            </button>
+        </div>
+    </div>
 </div>"""
             
             return response, ["email_draft_created"]
             
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error in compose_email: {e}")
+            logger.error(f"Raw response was: {email_json[:500] if 'email_json' in locals() else 'Not available'}")
+            return "I had trouble formatting the email. Could you please rephrase your request with the recipient email, subject, and message details?", []
         except Exception as e:
             logger.error(f"Error composing email: {e}")
-            return "I had trouble understanding your email request. Please provide the recipient, subject, and message content.", []
+            logger.error(f"Error type: {type(e).__name__}")
+            return "I had trouble understanding your email request. Please provide the recipient email address, subject line, and message content.", []
     
     async def _reply_email(self, db: Session, user: User, message: str, 
                           context: Dict[str, Any]) -> tuple:
@@ -908,32 +1023,53 @@ Generate an appropriate reply based on the user's request and the original email
             logger.error(f"Traceback: {traceback.format_exc()}")
             return "I had trouble generating a reply. Please try again with more specific instructions.", []
     
-    async def _format_email(self, user: User, recipient: str, subject: str, message: str, 
-                           tone: str = 'professional', reply_context: Dict = None) -> Dict[str, str]:
-        # Get recipient's name - use sender_name from reply context if available
-        if reply_context and reply_context.get('sender_name'):
-            # Use the actual sender name from the email we're replying to
+    async def _format_email(self, user: User, recipient: str, subject: str, message: str,
+                           tone: str = 'professional', reply_context: Dict = None, recipient_name: str = None) -> Dict[str, str]:
+        # Get recipient's name
+        recipient_first_name = None
+
+        # Priority 1: Explicit recipient_name parameter (from compose prompt)
+        if recipient_name:
+            recipient_first_name = recipient_name.split()[0] if recipient_name else None
+        # Priority 2: sender_name from reply context (when replying to an email)
+        elif reply_context and reply_context.get('sender_name'):
             recipient_full_name = reply_context['sender_name']
-            # Extract first name from full name
             recipient_first_name = recipient_full_name.split()[0] if recipient_full_name else None
+        # Priority 3: Try to extract from email address, but only if it looks like a real name
         else:
-            # Fallback to extracting from email address
-            recipient_name = recipient.split('@')[0].replace('.', ' ').replace('_', ' ').title()
-            recipient_first_name = recipient_name.split()[0] if recipient_name else recipient.split('@')[0]
-        
+            email_local = recipient.split('@')[0]
+            # Check if email looks like a name (contains dots or underscores suggesting name parts)
+            if '.' in email_local or '_' in email_local:
+                extracted_name = email_local.replace('.', ' ').replace('_', ' ').title()
+                # Only use if it doesn't contain numbers (which suggests a username rather than name)
+                if not any(char.isdigit() for char in extracted_name):
+                    recipient_first_name = extracted_name.split()[0] if extracted_name else None
+
         # Get sender's actual name from user object
         sender_name = user.name if user.name else user.email.split('@')[0].replace('.', ' ').replace('_', ' ').title()
-        
-        # Choose appropriate greeting based on tone
-        if tone == 'formal':
-            greeting = f"Dear {recipient_first_name},"
-            closing = f"Sincerely,\n{sender_name}"
-        elif tone == 'casual':
-            greeting = f"Hi {recipient_first_name}!"
-            closing = f"Best,\n{sender_name}"
-        else:  # professional
-            greeting = f"Hello {recipient_first_name},"
-            closing = f"Best regards,\n{sender_name}"
+
+        # Choose appropriate greeting based on tone and whether we have a name
+        if recipient_first_name:
+            if tone == 'formal':
+                greeting = f"Dear {recipient_first_name},"
+                closing = f"Sincerely,\n{sender_name}"
+            elif tone == 'casual':
+                greeting = f"Hi {recipient_first_name}!"
+                closing = f"Best,\n{sender_name}"
+            else:  # professional
+                greeting = f"Hello {recipient_first_name},"
+                closing = f"Best regards,\n{sender_name}"
+        else:
+            # Use generic greetings when we don't have a good name
+            if tone == 'formal':
+                greeting = "Dear Sir/Madam,"
+                closing = f"Sincerely,\n{sender_name}"
+            elif tone == 'casual':
+                greeting = "Hi there!"
+                closing = f"Best,\n{sender_name}"
+            else:  # professional
+                greeting = "Hello,"
+                closing = f"Best regards,\n{sender_name}"
         
         # Add reply context if this is a reply
         context_text = ""
@@ -1032,7 +1168,7 @@ Return ONLY valid JSON, no additional text."""
                         try:
                             # Try to parse ISO format
                             due_date = datetime.fromisoformat(due_date.replace('Z', '+00:00'))
-                        except:
+                        except (ValueError, TypeError):
                             due_date = None
                     
                     cleaned_item = {

@@ -20,11 +20,13 @@ from api.auth import (get_current_user, get_or_create_user, create_access_token,
                       get_microsoft_user_info, verify_oauth_state,
                       store_oauth_tokens, create_refresh_token)
 from api.models import *
-from api.routes import emails, actions, huddles, trash, saig, intelligence, urgent
+from api.routes import emails, actions, huddles, trash, saig, intelligence, urgent, cognito_auth, user, dashboard, sales_dashboard, prospecting
 from api.middleware import AuthMiddleware
 from core.database import get_db, User, Email
 from core.gmail_service import GmailService
 from core.outlook_service import OutlookService
+from core.unified_auth import UnifiedAuthService
+from core.background_sync import background_sync
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -59,6 +61,8 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Include routers
+app.include_router(dashboard.router, tags=["dashboard"])  # Note: prefix is in the router
+app.include_router(sales_dashboard.router, tags=["sales-dashboard"])  # Note: prefix is in the router
 app.include_router(emails.router, prefix="/api/emails", tags=["emails"])
 app.include_router(actions.router, prefix="/api/actions", tags=["actions"])
 app.include_router(huddles.router, prefix="/api/huddles", tags=["huddles"])
@@ -66,30 +70,31 @@ app.include_router(trash.router, prefix="/api/trash", tags=["trash"])
 app.include_router(saig.router, prefix="/api/saig", tags=["saig"])
 app.include_router(intelligence.router, prefix="/api/intelligence", tags=["intelligence"])
 app.include_router(urgent.router, prefix="/api/urgent", tags=["urgent"])
+app.include_router(cognito_auth.router, tags=["cognito-auth"])  # Note: prefix is in the router
+app.include_router(user.router, tags=["user"])  # Note: prefix is in the router
+app.include_router(prospecting.router, tags=["prospecting"])  # Note: prefix is in the router
 
 # Email service instances
 gmail_service = GmailService()
 outlook_service = OutlookService()
+unified_auth = UnifiedAuthService()
 
-# Background sync task
+# Background sync task - uses the background_sync service
 async def sync_emails_background():
-    """Background task to sync emails every 30 seconds"""
-    await asyncio.sleep(10)  # Initial delay before starting
-    while True:
-        try:
-            logger.info("Starting email sync...")
-            # This would be implemented with proper user session management
-        except Exception as e:
-            logger.error(f"Sync error: {e}")
-        
-        # Always wait between sync attempts
-        await asyncio.sleep(30)
+    """Background task to sync emails for all active users"""
+    await background_sync.start_background_loop()
 
 @app.on_event("startup")
 async def startup_event():
     """Start background tasks on app startup"""
     asyncio.create_task(sync_emails_background())
     logger.info("SAIGBOX V3 started successfully")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up on app shutdown"""
+    background_sync.stop()
+    logger.info("SAIGBOX V3 shutdown complete")
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request, current_user: Optional[User] = Depends(get_current_user_optional)):
@@ -153,14 +158,20 @@ async def get_microsoft_auth_url():
 
 @app.post("/api/auth/demo")
 async def demo_login(db: Session = Depends(get_db)):
-    """Demo login for testing"""
-    demo_email = "demo@saigbox.com"
-    demo_user = get_or_create_user(db, demo_email, "Demo User", provider="demo")
-    
+    """Demo login - uses test user with sample farm equipment emails"""
+    demo_email = "testuser@demo.saigbox.com"
+
+    # Find existing test user (created by create_farm_equipment_demo.py script)
+    demo_user = db.query(User).filter(User.email == demo_email).first()
+
+    if not demo_user:
+        # Fall back to creating a demo user if test data not loaded
+        demo_user = get_or_create_user(db, demo_email, "Jake Morrison", provider="demo")
+
     # Create both access and refresh tokens
     access_token = create_access_token(data={"sub": demo_email})
     refresh_token = create_refresh_token(data={"sub": demo_email})
-    
+
     response = JSONResponse(content={
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -170,7 +181,7 @@ async def demo_login(db: Session = Depends(get_db)):
             "name": demo_user.name
         }
     })
-    
+
     # Set cookie for session
     response.set_cookie(
         key="access_token",
@@ -180,11 +191,60 @@ async def demo_login(db: Session = Depends(get_db)):
         samesite="lax",
         max_age=86400  # 1 day
     )
-    
+
+    return response
+
+@app.post("/api/auth/test")
+async def test_login(db: Session = Depends(get_db)):
+    """Test login with pre-populated sample data (12 emails, 4 action items)"""
+    test_email = "testuser@demo.saigbox.com"
+
+    # Find existing test user (created by create_test_data.py script)
+    test_user = db.query(User).filter(User.email == test_email).first()
+
+    if not test_user:
+        # Create test user if not exists
+        test_user = get_or_create_user(db, test_email, "Test User", provider="demo")
+
+    # Create both access and refresh tokens
+    access_token = create_access_token(data={"sub": test_email})
+    refresh_token = create_refresh_token(data={"sub": test_email})
+
+    # Get counts for info
+    from core.database import Email as EmailModel, ActionItem
+    email_count = db.query(EmailModel).filter(EmailModel.user_id == test_user.id).count()
+    action_count = db.query(ActionItem).filter(ActionItem.user_id == test_user.id).count()
+
+    response = JSONResponse(content={
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": {
+            "email": test_user.email,
+            "name": test_user.name
+        },
+        "test_data": {
+            "emails": email_count,
+            "action_items": action_count,
+            "note": "Run 'python scripts/create_test_data.py' to populate test data"
+        }
+    })
+
+    # Set cookie for session
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=86400
+    )
+
     return response
 
 @app.get("/api/auth/google/callback")
 async def google_auth_callback(
+    request: Request,
     code: str, 
     state: str,
     db: Session = Depends(get_db)
@@ -218,11 +278,18 @@ async def google_auth_callback(
             tokens.get('expires_in')
         )
         
+        # Sync with Cognito and S3 (async, non-blocking)
+        asyncio.create_task(unified_auth.handle_oauth_login(db, user_info, "google"))
+        
         # Trigger initial email sync
         try:
             logger.info(f"Starting initial email sync for user {user.email}")
-            result = gmail_service.fetch_emails(db, user, max_results=50)
+            result = gmail_service.fetch_emails(db, user, max_results=100)
             logger.info(f"Initial sync completed: {len(result['emails'])} emails fetched")
+            
+            # Save emails to S3 if user has Cognito account
+            if user.cognito_sub:
+                asyncio.create_task(unified_auth.save_emails_to_s3(user, result['emails']))
         except Exception as sync_error:
             logger.error(f"Initial sync failed: {sync_error}")
             # Don't fail the login if sync fails
@@ -231,8 +298,9 @@ async def google_auth_callback(
         access_token = create_access_token(data={"sub": user.email})
         refresh_token = create_refresh_token(data={"sub": user.email})
         
-        # Redirect directly to the inbox with authentication cookie set
-        response = RedirectResponse(url="https://api.saigbox.com/")
+        # Redirect to the appropriate frontend URL based on environment
+        redirect_url = "/" if "localhost" in str(request.url) else "https://api.saigbox.com/"
+        response = RedirectResponse(url=redirect_url)
         response.set_cookie(
             key="access_token",
             value=access_token,
@@ -258,12 +326,25 @@ async def google_auth_callback(
 
 @app.get("/api/auth/microsoft/callback")
 async def microsoft_auth_callback(
-    code: str,
-    state: str,
+    request: Request,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    error_description: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Handle Microsoft OAuth callback"""
     try:
+        # Check for OAuth errors
+        if error:
+            logger.error(f"Microsoft OAuth error: {error} - {error_description}")
+            return RedirectResponse(url=f"/login?error={error}&description={error_description or ''}")
+        
+        # Check for required parameters
+        if not code or not state:
+            logger.error(f"Missing required parameters - code: {code}, state: {state}")
+            return RedirectResponse(url="/login?error=missing_parameters")
+        
         # State verification is handled in exchange_microsoft_code
         
         # Exchange code for tokens
@@ -272,11 +353,12 @@ async def microsoft_auth_callback(
         # Get user info
         user_info = await get_microsoft_user_info(tokens['access_token'])
         
-        # Create or update user
+        # Create or update user - use normalized fields
         user = get_or_create_user(
             db,
-            email=user_info.get('mail') or user_info.get('userPrincipalName'),
-            name=user_info.get('displayName'),
+            email=user_info.get('email'),  # This is already normalized by oauth_config
+            name=user_info.get('name'),
+            picture=user_info.get('picture'),
             provider="microsoft"
         )
         
@@ -290,12 +372,29 @@ async def microsoft_auth_callback(
             tokens.get('expires_in')
         )
         
+        # Sync with Cognito and S3 (async, non-blocking)
+        asyncio.create_task(unified_auth.handle_oauth_login(db, user_info, "microsoft"))
+        
+        # Trigger initial email sync
+        try:
+            logger.info(f"Starting initial email sync for user {user.email}")
+            result = await outlook_service.fetch_emails(db, user, max_results=100)
+            logger.info(f"Initial sync completed: {len(result.get('emails', []))} emails fetched")
+            
+            # Save emails to S3 if user has Cognito account
+            if user.cognito_sub:
+                asyncio.create_task(unified_auth.save_emails_to_s3(user, result.get('emails', [])))
+        except Exception as sync_error:
+            logger.error(f"Initial sync failed: {sync_error}")
+            # Don't fail the login if sync fails
+        
         # Create JWT tokens
         access_token = create_access_token(data={"sub": user.email})
         refresh_token = create_refresh_token(data={"sub": user.email})
         
-        # Redirect directly to the inbox with authentication cookie set
-        response = RedirectResponse(url="https://api.saigbox.com/")
+        # Redirect to the appropriate frontend URL based on environment
+        redirect_url = "/" if "localhost" in str(request.url) else "https://api.saigbox.com/"
+        response = RedirectResponse(url=redirect_url)
         response.set_cookie(
             key="access_token",
             value=access_token,
@@ -388,7 +487,7 @@ async def trigger_sync(
         if 'application/json' in content_type:
             try:
                 body = await request.json()
-            except:
+            except (ValueError, TypeError):
                 body = {}
         
         max_results = body.get('max_results', 50)

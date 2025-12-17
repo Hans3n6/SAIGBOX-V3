@@ -34,28 +34,27 @@ class OutlookService:
     def get_access_token(self, user: User, db: Session) -> Optional[str]:
         """Get valid access token for user, refreshing if necessary"""
         try:
-            # Get stored OAuth token
-            oauth_token = db.query(OAuthToken).filter(
-                OAuthToken.user_id == user.id,
-                OAuthToken.provider == "microsoft"
-            ).first()
-            
-            if not oauth_token:
-                logger.error(f"No Microsoft OAuth token found for user {user.email}")
+            # Check if user has Microsoft OAuth tokens
+            if not user.oauth_access_token:
+                logger.error(f"No OAuth access token found for user {user.email}")
                 return None
             
             # Check if token is expired
-            if oauth_token.expires_at and oauth_token.expires_at < datetime.utcnow():
+            if user.oauth_token_expires and user.oauth_token_expires < datetime.utcnow():
                 # Token expired, refresh it
                 logger.info(f"Refreshing expired token for user {user.email}")
-                new_token = self.refresh_access_token(oauth_token.refresh_token, db, user)
-                if new_token:
-                    return new_token
+                if user.oauth_refresh_token:
+                    new_token = self.refresh_access_token(user.oauth_refresh_token, db, user)
+                    if new_token:
+                        return new_token
+                    else:
+                        logger.error(f"Failed to refresh token for user {user.email}")
+                        return None
                 else:
-                    logger.error(f"Failed to refresh token for user {user.email}")
+                    logger.error(f"No refresh token available for user {user.email}")
                     return None
             
-            return oauth_token.access_token
+            return user.oauth_access_token
             
         except Exception as e:
             logger.error(f"Error getting access token: {e}")
@@ -80,18 +79,12 @@ class OutlookService:
                 
                 token_data = response.json()
                 
-                # Update stored token
-                oauth_token = db.query(OAuthToken).filter(
-                    OAuthToken.user_id == user.id,
-                    OAuthToken.provider == "microsoft"
-                ).first()
-                
-                if oauth_token:
-                    oauth_token.access_token = token_data['access_token']
-                    if 'refresh_token' in token_data:
-                        oauth_token.refresh_token = token_data['refresh_token']
-                    oauth_token.expires_at = datetime.utcnow() + timedelta(seconds=token_data.get('expires_in', 3600))
-                    db.commit()
+                # Update stored tokens in user model
+                user.oauth_access_token = token_data['access_token']
+                if 'refresh_token' in token_data:
+                    user.oauth_refresh_token = token_data['refresh_token']
+                user.oauth_token_expires = datetime.utcnow() + timedelta(seconds=token_data.get('expires_in', 3600))
+                db.commit()
                 
                 return token_data['access_token']
                 
@@ -234,7 +227,7 @@ class OutlookService:
             try:
                 # Outlook returns ISO format with timezone
                 received_at = datetime.fromisoformat(message['receivedDateTime'].replace('Z', '+00:00'))
-            except:
+            except (ValueError, TypeError, KeyError):
                 received_at = datetime.utcnow()
         
         # Parse body
@@ -509,7 +502,156 @@ class OutlookService:
         except Exception as e:
             logger.error(f"Error moving Outlook email to folder: {e}")
             return False
-    
+
+    def mark_as_read(self, user: User, message_id: str, db: Session) -> bool:
+        """Mark an email as read"""
+        try:
+            access_token = self.get_access_token(user, db)
+            if not access_token:
+                return False
+
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Content-Type': 'application/json'
+            }
+
+            data = {'isRead': True}
+
+            with httpx.Client(timeout=30.0) as client:
+                response = client.patch(
+                    f"{self.graph_api_base}/me/messages/{message_id}",
+                    headers=headers,
+                    json=data
+                )
+                return response.status_code == 200
+
+        except Exception as e:
+            logger.error(f"Error marking Outlook email as read: {e}")
+            return False
+
+    def mark_as_unread(self, user: User, message_id: str, db: Session) -> bool:
+        """Mark an email as unread"""
+        try:
+            access_token = self.get_access_token(user, db)
+            if not access_token:
+                return False
+
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Content-Type': 'application/json'
+            }
+
+            data = {'isRead': False}
+
+            with httpx.Client(timeout=30.0) as client:
+                response = client.patch(
+                    f"{self.graph_api_base}/me/messages/{message_id}",
+                    headers=headers,
+                    json=data
+                )
+                return response.status_code == 200
+
+        except Exception as e:
+            logger.error(f"Error marking Outlook email as unread: {e}")
+            return False
+
+    def star_email(self, user: User, message_id: str, db: Session) -> bool:
+        """Flag/star an email (Outlook uses flags instead of stars)"""
+        try:
+            access_token = self.get_access_token(user, db)
+            if not access_token:
+                return False
+
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Content-Type': 'application/json'
+            }
+
+            # Outlook uses flag with flagStatus
+            data = {
+                'flag': {
+                    'flagStatus': 'flagged'
+                }
+            }
+
+            with httpx.Client(timeout=30.0) as client:
+                response = client.patch(
+                    f"{self.graph_api_base}/me/messages/{message_id}",
+                    headers=headers,
+                    json=data
+                )
+                return response.status_code == 200
+
+        except Exception as e:
+            logger.error(f"Error flagging Outlook email: {e}")
+            return False
+
+    def unstar_email(self, user: User, message_id: str, db: Session) -> bool:
+        """Remove flag/star from an email"""
+        try:
+            access_token = self.get_access_token(user, db)
+            if not access_token:
+                return False
+
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Content-Type': 'application/json'
+            }
+
+            data = {
+                'flag': {
+                    'flagStatus': 'notFlagged'
+                }
+            }
+
+            with httpx.Client(timeout=30.0) as client:
+                response = client.patch(
+                    f"{self.graph_api_base}/me/messages/{message_id}",
+                    headers=headers,
+                    json=data
+                )
+                return response.status_code == 200
+
+        except Exception as e:
+            logger.error(f"Error unflagging Outlook email: {e}")
+            return False
+
+    def list_folders(self, user: User, db: Session) -> List[Dict[str, str]]:
+        """List mail folders (equivalent to Gmail labels)"""
+        try:
+            access_token = self.get_access_token(user, db)
+            if not access_token:
+                return []
+
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Content-Type': 'application/json'
+            }
+
+            with httpx.Client(timeout=30.0) as client:
+                response = client.get(
+                    f"{self.graph_api_base}/me/mailFolders",
+                    headers=headers
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    return [
+                        {
+                            'id': folder['id'],
+                            'name': folder['displayName'],
+                            'unread_count': folder.get('unreadItemCount', 0),
+                            'total_count': folder.get('totalItemCount', 0)
+                        }
+                        for folder in data.get('value', [])
+                    ]
+
+                return []
+
+        except Exception as e:
+            logger.error(f"Error listing Outlook folders: {e}")
+            return []
+
     def _fallback_basic_sync(self, db: Session, user: User) -> Dict[str, Any]:
         """Fallback to return cached emails when API fails"""
         try:

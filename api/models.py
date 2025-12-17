@@ -126,7 +126,12 @@ class ActionItem(ActionItemBase):
     id: str
     user_id: str
     email_id: Optional[str] = None
+    email_subject: Optional[str] = None  # Source email subject for grouping
+    email_sender: Optional[str] = None   # Source email sender
     status: ActionItemStatus
+    auto_created: bool = False           # True if AI-created
+    confidence_score: Optional[int] = None  # AI confidence 0-100
+    source_quote: Optional[str] = None   # Text that triggered this action
     created_at: datetime
     completed_at: Optional[datetime] = None
     updated_at: datetime
