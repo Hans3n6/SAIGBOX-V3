@@ -12,9 +12,13 @@ from core.gmail_service import GmailService
 from core.saig_assistant_simple import SimpleEmailHandler
 from core.urgency_detector import UrgencyDetector
 from core.saig_intelligence import SAIGIntelligence
+from core.knowledge_store import KnowledgeStore, SearchResult
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Global knowledge store cache per user
+_knowledge_store_cache = {}
 
 class SAIGAssistant:
     def __init__(self):
@@ -56,6 +60,26 @@ class SAIGAssistant:
         self.gmail_service = GmailService()
         self.intelligence = SAIGIntelligence()  # Initialize intelligence module
         self.simple_handler = SimpleEmailHandler()  # Simple email deletion handler
+
+        # Knowledge store will be initialized per-user when needed
+        self._user_knowledge_stores = {}
+
+    def _get_knowledge_store(self, user_email: str) -> KnowledgeStore:
+        """Get or create knowledge store for a user"""
+        global _knowledge_store_cache
+
+        if user_email not in _knowledge_store_cache:
+            if self.use_bedrock:
+                _knowledge_store_cache[user_email] = KnowledgeStore(
+                    bedrock_client=self.bedrock_client,
+                    db_path=f"data/knowledge.db",
+                    user_id=user_email
+                )
+            else:
+                # Can't use knowledge store without Bedrock
+                return None
+
+        return _knowledge_store_cache.get(user_email)
     
     async def process_message(self, db: Session, user: User, message: str, 
                              context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -141,8 +165,15 @@ class SAIGAssistant:
             "recent_emails": [],
             "selected_email": None,
             "total_unread": 0,
-            "total_emails": 0
+            "total_emails": 0,
+            "has_company_knowledge": False
         }
+
+        # Check if user has company knowledge
+        knowledge_store = self._get_knowledge_store(user.email)
+        if knowledge_store:
+            stats = knowledge_store.get_statistics()
+            email_context["has_company_knowledge"] = stats.get("total_chunks", 0) > 0
         
         # Preserve pending_delete if it exists in the context
         if context and 'pending_delete' in context:
@@ -282,7 +313,7 @@ class SAIGAssistant:
             return 'reply_email'
             
         prompt = f"""Analyze the user's message and determine their intent.
-        
+
 User message: {message}
 
 Available intents:
@@ -299,6 +330,9 @@ Available intents:
 - create_folder: User wants to create a new folder/label
 - list_folders: User wants to see available folders/labels
 - star_email: User wants to star/favorite emails
+- ask_company: User asks about their company, products, services, pricing, differentiators, case studies, competitors
+- sales_context: User wants context/talking points for a specific prospect or deal
+- competitor_intel: User asks about how to compete against a specific competitor
 - general_question: General question about emails or the system
 - help: User needs help or instructions
 
@@ -306,6 +340,7 @@ Context:
 - Total emails: {context['total_emails']}
 - Unread emails: {context['total_unread']}
 - Has selected email: {context['selected_email'] is not None}
+- Has company knowledge: {context.get('has_company_knowledge', False)}
 
 Return only the intent name, nothing else."""
 
@@ -314,11 +349,12 @@ Return only the intent name, nothing else."""
             intent = intent.strip().lower()
             
             # Validate intent
-            valid_intents = ['search_emails', 'compose_email', 'reply_email', 'mark_read', 'mark_unread', 
-                           'summarize', 'create_action', 'list_actions', 'delete_email', 
+            valid_intents = ['search_emails', 'compose_email', 'reply_email', 'mark_read', 'mark_unread',
+                           'summarize', 'create_action', 'list_actions', 'delete_email',
                            'move_to_folder', 'create_folder', 'list_folders',
                            'star_email', 'general_question', 'help',
-                           'analyze_patterns', 'extract_actions', 'categorize_emails', 'show_insights']
+                           'analyze_patterns', 'extract_actions', 'categorize_emails', 'show_insights',
+                           'ask_company', 'sales_context', 'competitor_intel']
             
             if intent not in valid_intents:
                 intent = 'general_question'
@@ -364,6 +400,12 @@ Return only the intent name, nothing else."""
             response, actions = await self._categorize_emails(db, user)
         elif intent == 'show_insights':
             response = await self._show_insights(db, user)
+        elif intent == 'ask_company':
+            response, actions = await self._ask_company(user, message, context)
+        elif intent == 'sales_context':
+            response, actions = await self._get_sales_context(user, message, context)
+        elif intent == 'competitor_intel':
+            response, actions = await self._get_competitor_intel(user, message, context)
         elif intent == 'help':
             response = self._get_help_message()
         else:
@@ -729,6 +771,22 @@ Keep your response concise and helpful."""
     
     async def _compose_email(self, db: Session, user: User, message: str,
                             context: Dict[str, Any]) -> tuple:
+        # Get company knowledge to enhance the email
+        company_context = await self._get_company_context_for_email(user, message)
+
+        company_section = ""
+        if company_context:
+            company_section = f"""
+
+COMPANY KNOWLEDGE (use this to make the email more informed and specific):
+{company_context}
+
+When composing the email:
+- Reference specific products, services, or value propositions from the company knowledge when relevant
+- Use accurate details about what the company offers
+- Mention specific benefits or differentiators if it's a sales/pitch email
+"""
+
         prompt = f"""Based on this user request: {message!r}
 
 Compose a professional email and return it as JSON with the following fields:
@@ -738,7 +796,7 @@ Compose a professional email and return it as JSON with the following fields:
 - message: the FULL email body content WITHOUT greeting or closing (required). This should be a complete, well-written email body with proper paragraphs, NOT just a rewording of the user's request. Write it as if you're the sender composing a professional email.
 - tone: formal, casual, or professional (default: professional)
 - reply_to_email_id: if this is a reply to a specific email, extract the email ID from context
-
+{company_section}
 CRITICAL INSTRUCTIONS FOR THE 'message' FIELD:
 - DO NOT just reword the user's request - COMPOSE an actual professional email body
 - Include relevant context, explanations, and complete sentences
@@ -877,7 +935,7 @@ Return ONLY valid JSON, no additional text."""
             logger.error(f"Error type: {type(e).__name__}")
             return "I had trouble understanding your email request. Please provide the recipient email address, subject line, and message content.", []
     
-    async def _reply_email(self, db: Session, user: User, message: str, 
+    async def _reply_email(self, db: Session, user: User, message: str,
                           context: Dict[str, Any]) -> tuple:
         # Check if we have a selected email to reply to
         logger.info(f"Reply email context: {context.get('selected_email', 'None')}")
@@ -885,12 +943,30 @@ Return ONLY valid JSON, no additional text."""
             logger.error(f"No selected email in context. Context keys: {context.keys() if context else 'None'}")
             logger.error(f"Context selected_email value: {context.get('selected_email') if context else 'No context'}")
             return "Please select an email first, then ask me to reply to it.", []
-        
+
         selected_email = context['selected_email']
-        
+
+        # Get company knowledge to enhance the reply
+        email_subject = selected_email.get('subject', '')
+        company_context = await self._get_company_context_for_email(user, f"reply {email_subject}")
+
+        company_section = ""
+        if company_context:
+            company_section = f"""
+
+YOUR COMPANY KNOWLEDGE (use this to provide accurate, informed responses):
+{company_context}
+
+When generating the reply:
+- If the sender asks about products/services, use accurate information from the company knowledge
+- Reference specific capabilities, features, or benefits when relevant
+- If it's a sales conversation, include relevant value propositions
+- Sound knowledgeable about what your company offers
+"""
+
         # Check if this is a direct analysis request or has additional instructions
         is_direct_analysis = "Please read this email and generate" in message
-        
+
         if is_direct_analysis:
             # Generate intelligent reply based on email content
             prompt = f"""Analyze this email and generate an intelligent, contextually appropriate reply.
@@ -899,7 +975,7 @@ Original Email:
 From: {selected_email['sender']}
 Subject: {selected_email['subject']}
 Body: {selected_email['body'][:2000]}
-
+{company_section}
 Based on the email content:
 1. Identify the main purpose of the email (question, request, update, etc.)
 2. Determine what response is needed
@@ -908,13 +984,14 @@ Based on the email content:
    - Addresses all questions or requests
    - Provides helpful information or next steps
    - Maintains a professional tone
+   - Uses company knowledge when relevant to sound informed
 
 IMPORTANT: Generate ONLY the main body of the reply. Do NOT include:
 - Greeting (like "Hi John" or "Dear Sarah")
 - Closing (like "Best regards" or "Sincerely")
 - Signature/name
 These will be added automatically.
-   
+
 {message.split('Additional instructions:')[1] if 'Additional instructions:' in message else ''}
 
 Generate the reply as JSON with:
@@ -932,7 +1009,7 @@ Subject: {selected_email['subject']}
 Body: {selected_email['body'][:1000]}
 
 User's reply request: "{message}"
-
+{company_section}
 IMPORTANT: Generate ONLY the main body of the reply. Do NOT include:
 - Greeting (like "Hi John" or "Dear Sarah")
 - Closing (like "Best regards" or "Sincerely")
@@ -944,7 +1021,7 @@ Extract the following information as JSON:
 - tone: formal, casual, or professional (default: professional)
 - include_original: true/false - whether to include original email text
 
-Generate an appropriate reply based on the user's request and the original email context.
+Generate an appropriate reply based on the user's request and the original email context. Use company knowledge when relevant.
 """
         
         try:
@@ -1199,26 +1276,307 @@ Return ONLY valid JSON, no additional text."""
                 "action_items": [],
                 "summary": "Unable to analyze email - please review manually"
             }
-    
+
+    # ==========================================
+    # Company Knowledge Methods
+    # ==========================================
+
+    async def _ask_company(self, user: User, message: str, context: Dict[str, Any]) -> tuple:
+        """Answer questions about the user's company using knowledge base"""
+        knowledge_store = self._get_knowledge_store(user.email)
+
+        if not knowledge_store:
+            return "Company knowledge features require AWS Bedrock. Please ensure Bedrock is configured.", []
+
+        # Check if we have knowledge
+        stats = knowledge_store.get_statistics()
+        if stats.get("total_chunks", 0) == 0:
+            return """I don't have any information about your company yet.
+
+To teach me about your company, go to the **Company Agent** tab and enter your company's website URL. I'll crawl and learn everything about your products, services, and differentiators.
+
+Once I've learned your company, you can ask me:
+• "What are our main products?"
+• "What makes us different from competitors?"
+• "What industries do we serve?"
+• "Give me talking points for a healthcare CTO"
+""", []
+
+        # Search knowledge base
+        results = await knowledge_store.search(message, top_k=8)
+
+        if not results:
+            return "I couldn't find relevant information in your company knowledge. Try rephrasing your question.", []
+
+        # Build context from results
+        knowledge_context = self._build_knowledge_context(results)
+
+        # Generate answer using Claude
+        prompt = f"""You are SAIG, an AI sales assistant helping a salesperson understand their company.
+
+Based on the following company knowledge, answer the question accurately and helpfully.
+
+COMPANY KNOWLEDGE:
+{knowledge_context}
+
+QUESTION: {message}
+
+Provide a helpful, accurate answer based on the company knowledge above.
+- Be concise but thorough
+- Use bullet points for lists
+- Cite specific details from the knowledge
+- If the knowledge doesn't fully answer the question, say so
+"""
+
+        try:
+            answer = await self._call_anthropic(prompt, max_tokens=800, temperature=0.5)
+
+            # Format with sources
+            sources = list(set([r.chunk.title for r in results[:3] if r.chunk.title]))
+            if sources:
+                answer += f"\n\n📚 *Sources: {', '.join(sources)}*"
+
+            return answer.strip(), ["company_knowledge_query"]
+
+        except Exception as e:
+            logger.error(f"Error answering company question: {e}")
+            return "I encountered an error while searching company knowledge. Please try again.", []
+
+    async def _get_sales_context(self, user: User, message: str, context: Dict[str, Any]) -> tuple:
+        """Get sales context/talking points for a prospect"""
+        knowledge_store = self._get_knowledge_store(user.email)
+
+        if not knowledge_store or knowledge_store.get_statistics().get("total_chunks", 0) == 0:
+            return "I need to learn about your company first. Go to the Company Agent tab and enter your website URL.", []
+
+        # Extract prospect info from message
+        prompt = f"""Extract prospect information from this message:
+"{message}"
+
+Return JSON with:
+- industry: prospect's industry (if mentioned)
+- role: prospect's job title/role (if mentioned)
+- company: prospect's company name (if mentioned)
+- pain_points: any pain points or needs mentioned
+- email_purpose: what kind of email/conversation (cold outreach, follow-up, demo, etc.)
+
+Return ONLY valid JSON."""
+
+        try:
+            prospect_json = await self._call_anthropic(prompt, max_tokens=200, temperature=0.3)
+            import re
+            json_match = re.search(r'\{.*\}', prospect_json, re.DOTALL)
+            if json_match:
+                prospect_info = json.loads(json_match.group())
+            else:
+                prospect_info = {}
+        except:
+            prospect_info = {}
+
+        # Build search queries based on prospect
+        queries = [
+            f"products services for {prospect_info.get('industry', 'business')}",
+            f"value proposition for {prospect_info.get('role', 'executive')}",
+            f"benefits case study",
+            "differentiators competitive advantage"
+        ]
+
+        all_results = []
+        seen_urls = set()
+
+        for query in queries:
+            results = await knowledge_store.search(query, top_k=3)
+            for r in results:
+                if r.chunk.url not in seen_urls:
+                    all_results.append(r)
+                    seen_urls.add(r.chunk.url)
+
+        all_results.sort(key=lambda x: x.score, reverse=True)
+        knowledge_context = self._build_knowledge_context(all_results[:8])
+
+        # Generate sales context
+        prompt = f"""Based on company knowledge, provide sales context for this prospect.
+
+PROSPECT INFO:
+- Industry: {prospect_info.get('industry', 'Unknown')}
+- Role: {prospect_info.get('role', 'Unknown')}
+- Company: {prospect_info.get('company', 'Unknown')}
+- Purpose: {prospect_info.get('email_purpose', 'outreach')}
+
+COMPANY KNOWLEDGE:
+{knowledge_context}
+
+Provide actionable sales context including:
+1. **Relevant Products/Services** - What to highlight for this prospect
+2. **Key Benefits** - Benefits that matter for their industry/role
+3. **Talking Points** - Specific points to make in conversation
+4. **Potential Objections** - What they might push back on and how to handle
+5. **Suggested Approach** - How to open the conversation
+
+Be specific and actionable. Reference actual products/features from the knowledge."""
+
+        try:
+            context_response = await self._call_anthropic(prompt, max_tokens=1000, temperature=0.5)
+            return context_response.strip(), ["sales_context_generated"]
+
+        except Exception as e:
+            logger.error(f"Error generating sales context: {e}")
+            return "I encountered an error generating sales context. Please try again.", []
+
+    async def _get_competitor_intel(self, user: User, message: str, context: Dict[str, Any]) -> tuple:
+        """Get competitive intelligence against a specific competitor"""
+        knowledge_store = self._get_knowledge_store(user.email)
+
+        if not knowledge_store or knowledge_store.get_statistics().get("total_chunks", 0) == 0:
+            return "I need to learn about your company first. Go to the Company Agent tab and enter your website URL.", []
+
+        # Extract competitor name
+        prompt = f"""Extract the competitor name from this message:
+"{message}"
+
+Return ONLY the competitor company name, nothing else."""
+
+        try:
+            competitor_name = await self._call_anthropic(prompt, max_tokens=50, temperature=0.3)
+            competitor_name = competitor_name.strip().strip('"').strip("'")
+        except:
+            competitor_name = "the competitor"
+
+        # Search for competitive content
+        queries = [
+            f"vs {competitor_name}",
+            f"compare {competitor_name}",
+            f"better than alternative",
+            "why choose us differentiators",
+            "unique features advantages"
+        ]
+
+        all_results = []
+        seen_urls = set()
+
+        for query in queries:
+            results = await knowledge_store.search(query, top_k=3)
+            for r in results:
+                if r.chunk.url not in seen_urls:
+                    all_results.append(r)
+                    seen_urls.add(r.chunk.url)
+
+        all_results.sort(key=lambda x: x.score, reverse=True)
+        knowledge_context = self._build_knowledge_context(all_results[:8])
+
+        # Generate competitive intel
+        prompt = f"""Based on company knowledge, provide competitive positioning against {competitor_name}.
+
+COMPANY KNOWLEDGE:
+{knowledge_context}
+
+Provide competitive intelligence including:
+1. **Our Key Advantages** - Where we're stronger than {competitor_name}
+2. **Talking Points** - What to emphasize when competing against them
+3. **Handle Objections** - If prospect says "But {competitor_name} has..."
+4. **Win Themes** - Key themes that help us win this deal
+5. **Potential Weaknesses** - Be honest about where we might be weaker (so you can prepare)
+
+Be specific and reference actual features/capabilities from the knowledge. Focus on what matters to buyers."""
+
+        try:
+            intel_response = await self._call_anthropic(prompt, max_tokens=1000, temperature=0.5)
+            return intel_response.strip(), ["competitor_intel_generated"]
+
+        except Exception as e:
+            logger.error(f"Error generating competitor intel: {e}")
+            return "I encountered an error generating competitive intelligence. Please try again.", []
+
+    def _build_knowledge_context(self, results: list) -> str:
+        """Build context string from search results"""
+        parts = []
+        for r in results:
+            chunk = r.chunk
+            part = f"[{chunk.page_type.upper()} - {chunk.title}]\n{chunk.content[:1500]}"
+            parts.append(part)
+        return "\n\n---\n\n".join(parts)
+
+    async def _get_company_context_for_email(self, user: User, email_purpose: str, recipient_info: str = "") -> str:
+        """Get relevant company knowledge to enhance email composition"""
+        knowledge_store = self._get_knowledge_store(user.email)
+
+        if not knowledge_store:
+            return ""
+
+        stats = knowledge_store.get_statistics()
+        if stats.get("total_chunks", 0) == 0:
+            return ""
+
+        # Build search queries based on email purpose
+        queries = [
+            "products services offerings",
+            "value proposition benefits",
+            "company overview about us",
+        ]
+
+        # Add context-specific queries
+        if "sales" in email_purpose.lower() or "pitch" in email_purpose.lower():
+            queries.extend(["differentiators competitive advantage", "case study success"])
+        if "follow" in email_purpose.lower():
+            queries.append("next steps process")
+        if recipient_info:
+            queries.append(f"solution for {recipient_info}")
+
+        all_results = []
+        seen_urls = set()
+
+        for query in queries[:4]:  # Limit queries
+            try:
+                results = await knowledge_store.search(query, top_k=2)
+                for r in results:
+                    if r.chunk.url not in seen_urls:
+                        all_results.append(r)
+                        seen_urls.add(r.chunk.url)
+            except Exception as e:
+                logger.warning(f"Knowledge search failed for '{query}': {e}")
+                continue
+
+        if not all_results:
+            return ""
+
+        # Sort by relevance and build context
+        all_results.sort(key=lambda x: x.score, reverse=True)
+        context_parts = []
+        for r in all_results[:5]:  # Limit to top 5 results
+            chunk = r.chunk
+            # Extract key info, not full content
+            content = chunk.content[:800] if chunk.content else ""
+            context_parts.append(f"[{chunk.page_type}] {content}")
+
+        return "\n\n".join(context_parts)
+
     def _get_help_message(self) -> str:
-        return """I'm SAIG, your email assistant. Here's what I can help you with:
+        return """I'm SAIG, your AI sales assistant. Here's what I can help you with:
 
 📧 **Email Management:**
 • Search for emails by keyword
 • Mark emails as read/unread
 • Star or unstar emails
 • Move emails to trash (recoverable for 30 days)
-• Move emails to folders
-• Create new folders/labels
-• List available folders
 • Compose and send new emails
 • Reply to emails intelligently
 
-📁 **Folder Organization:**
-• "Create a folder called Work"
-• "Move this email to Personal folder"
-• "Show me my folders"
-• "Move this email to trash" or "Delete this email"
+🏢 **Company Knowledge:**
+• "What are our main products?"
+• "What makes us different from competitors?"
+• "What industries do we serve?"
+• "Tell me about our pricing"
+*(First teach me your company in the Company Agent tab)*
+
+💼 **Sales Intelligence:**
+• "Give me talking points for a healthcare CTO"
+• "How should I pitch to a manufacturing company?"
+• "What context do I need for a cold email to a VP of Sales?"
+
+⚔️ **Competitive Intel:**
+• "How do we compare to [Competitor]?"
+• "What should I say if they mention [Competitor]?"
+• "What are our advantages over [Competitor]?"
 
 📝 **Action Items:**
 • Create action items from emails
@@ -1228,11 +1586,8 @@ Return ONLY valid JSON, no additional text."""
 💬 **Smart Features:**
 • Summarize long emails
 • Get email insights
-• Natural language commands
 • Analyze email patterns
 • Extract action items from emails
-• Categorize emails automatically
-• Show personalized insights
 
 Just tell me what you need help with!"""
     

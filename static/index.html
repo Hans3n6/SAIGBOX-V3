@@ -27,6 +27,7 @@
     </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/static/saig-colors.css">
+    <link rel="stylesheet" href="/static/css/company-agent.css">
     <style>
         .gradient-bg {
             background: linear-gradient(135deg, #7fc97f 0%, #6db56d 100%);
@@ -303,9 +304,9 @@
                     <i class="fas fa-chart-line w-5"></i>
                     <span class="ml-3">Sales Dashboard</span>
                 </a>
-                <a href="javascript:void(0)" onclick="switchView('business-profile'); return false;" class="nav-item nav-link flex items-center px-6 py-3 transition-colors">
-                    <i class="fas fa-building w-5"></i>
-                    <span class="ml-3">Business Profile</span>
+                <a href="javascript:void(0)" onclick="switchView('company-agent'); return false;" class="nav-item nav-link flex items-center px-6 py-3 transition-colors">
+                    <i class="fas fa-robot w-5"></i>
+                    <span class="ml-3">Company Agent</span>
                 </a>
                 <a href="javascript:void(0)" onclick="switchView('huddles'); return false;" class="nav-item nav-link flex items-center px-6 py-3 transition-colors">
                     <i class="fas fa-users w-5"></i>
@@ -523,7 +524,18 @@
                     </div>
                 </div>
 
-                <!-- Business Profile View -->
+                <!-- Company Agent View -->
+                <div id="company-agent-view" class="hidden h-full overflow-y-auto">
+                    <div id="company-agent-content">
+                        <!-- Company Agent UI (rendered by company-agent.js) -->
+                        <div class="text-center py-12 text-gray-500">
+                            <i class="fas fa-spinner fa-spin text-4xl mb-4"></i>
+                            <p>Loading Company Intelligence Agent...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Business Profile View (Legacy - kept for compatibility) -->
                 <div id="business-profile-view" class="hidden h-full p-6 overflow-y-auto">
                     <div class="max-w-4xl mx-auto">
                         <div class="flex justify-between items-center mb-6">
@@ -998,6 +1010,7 @@
                 'inbox': 'Inbox',
                 'actions': 'Action Items',
                 'sales-dashboard': 'Sales Dashboard',
+                'company-agent': 'Company Agent',
                 'business-profile': 'Business Profile',
                 'huddles': 'Huddles',
                 'trash': 'Trash',
@@ -1043,6 +1056,14 @@
                         window.loadSalesDashboard();
                     } else if (typeof loadSalesDashboard === 'function') {
                         loadSalesDashboard();
+                    }
+                } else if (view === 'company-agent') {
+                    // Load company agent from company-agent.js
+                    if (window.companyAgent) {
+                        window.companyAgent.init();
+                    } else if (typeof window.CompanyAgent === 'function') {
+                        window.companyAgent = new window.CompanyAgent();
+                        window.companyAgent.init();
                     }
                 } else if (view === 'business-profile') {
                     // Load business profile from business-profile.js
@@ -2232,12 +2253,12 @@
                             ${email.recipients ? `<div><strong>To:</strong> ${email.recipients.join(', ')}</div>` : ''}
                         </div>
                         
-                        <!-- AI Summary Section -->
+                        <!-- SAIG Advice Section -->
                         <div id="ai-summary-section-${emailId}" class="mb-4 border-2 border-green-400 rounded-lg overflow-hidden shadow-sm">
                             <button onclick="toggleAISummary('${emailId}')" class="w-full bg-gradient-to-r from-green-100 to-blue-100 hover:from-green-200 hover:to-blue-200 p-3 flex items-center justify-between transition-colors">
                                 <div class="flex items-center">
                                     <i class="fas fa-brain text-green-600 mr-2"></i>
-                                    <span class="font-semibold text-green-700">AI Summary</span>
+                                    <span class="font-semibold text-green-700">SAIG Advice</span>
                                     <span class="ml-2 text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded-full">Click to expand</span>
                                 </div>
                                 <i id="ai-summary-arrow-${emailId}" class="fas fa-chevron-down text-green-600 transition-transform"></i>
@@ -6698,7 +6719,7 @@
             }
         }
         
-        // AI Summary functionality
+        // SAIG Advice functionality
         let aiSummaryCache = {};
         
         async function toggleAISummary(emailId) {
@@ -8352,8 +8373,9 @@ Generate a thoughtful and contextually appropriate response that:
     <script src="/static/js/email.js"></script>
     <script src="/static/js/saig.js"></script>
     <script src="/static/js/sales.js?v=20251211"></script>
-    <script src="/static/js/business-profile.js?v=20251216"></script>
-    <script src="/static/js/lead-acquisition.js?v=20251216"></script>
+    <script src="/static/js/business-profile.js?v=20251217f"></script>
+    <script src="/static/js/company-agent.js?v=20251217"></script>
+    <script src="/static/js/lead-acquisition.js?v=20251217a"></script>
     <script src="/static/js/actions.js"></script>
     <script src="/static/js/compose.js"></script>
 
