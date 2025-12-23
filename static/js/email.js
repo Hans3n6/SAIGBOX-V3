@@ -247,12 +247,12 @@
                         ${email.is_urgent ? '<span class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">Urgent</span>' : ''}
                     </div>
 
-                    <!-- AI Summary Section -->
+                    <!-- SAIG Advice Section -->
                     <div id="ai-summary-section-${email.id}" class="mb-4 border-2 border-green-400 rounded-lg overflow-hidden shadow-sm">
                         <button onclick="toggleAISummary('${email.id}')" class="w-full bg-gradient-to-r from-green-100 to-blue-100 hover:from-green-200 hover:to-blue-200 p-3 flex items-center justify-between transition-colors">
                             <div class="flex items-center">
                                 <i class="fas fa-brain text-green-600 mr-2"></i>
-                                <span class="font-semibold text-green-700">AI Summary</span>
+                                <span class="font-semibold text-green-700">SAIG Advice</span>
                                 <span class="ml-2 text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded-full">Click to expand</span>
                             </div>
                             <i id="ai-summary-arrow-${email.id}" class="fas fa-chevron-down text-green-600 transition-transform"></i>

@@ -934,15 +934,390 @@ Return ONLY valid JSON, no additional text."""
             logger.error(f"Error composing email: {e}")
             logger.error(f"Error type: {type(e).__name__}")
             return "I had trouble understanding your email request. Please provide the recipient email address, subject line, and message content.", []
-    
+
+    async def generate_quick_reply(
+        self,
+        action_type: str,
+        email_context: Dict[str, Any],
+        custom_note: Optional[str] = None,
+        user: Any = None,
+        db: Any = None
+    ) -> str:
+        """Generate a quick reply without full AI processing for speed.
+
+        action_type: "accept", "decline", "schedule_call", "acknowledge", "follow_up"
+        """
+        sender_name = email_context.get('sender_name', '')
+        sender = email_context.get('sender', '')
+        subject = email_context.get('subject', '')
+        body = email_context.get('body', '')[:500]  # Limit for context
+
+        # Extract first name from sender
+        if not sender_name and sender:
+            if '<' in sender:
+                sender_name = sender.split('<')[0].strip().strip('"')
+            else:
+                sender_name = sender.split('@')[0].capitalize()
+
+        first_name = sender_name.split()[0] if sender_name else "there"
+
+        # Quick reply templates - fast, no AI needed for simple cases
+        templates = {
+            "accept": f"""Hi {first_name},
+
+Thank you for your email. I'd be happy to proceed with this.{' ' + custom_note if custom_note else ''}
+
+Looking forward to it!
+
+Best regards""",
+
+            "decline": f"""Hi {first_name},
+
+Thank you for reaching out. Unfortunately, I won't be able to accommodate this request at this time.{' ' + custom_note if custom_note else ''}
+
+I appreciate your understanding.
+
+Best regards""",
+
+            "schedule_call": f"""Hi {first_name},
+
+Thank you for your email. I'd be happy to schedule a call to discuss this further.
+
+Please let me know your availability, or feel free to pick a time that works for you.{' ' + custom_note if custom_note else ''}
+
+Looking forward to speaking with you!
+
+Best regards""",
+
+            "acknowledge": f"""Hi {first_name},
+
+Thank you for your email. I've received your message and will review it shortly.{' ' + custom_note if custom_note else ''}
+
+I'll get back to you as soon as possible.
+
+Best regards""",
+
+            "follow_up": f"""Hi {first_name},
+
+I wanted to follow up on my previous email regarding this matter.{' ' + custom_note if custom_note else ''}
+
+Please let me know if you have any questions or need additional information.
+
+Best regards"""
+        }
+
+        # Check if we have a simple template match
+        if action_type in templates and not self._needs_ai_response(body, action_type):
+            return templates[action_type]
+
+        # For complex cases, use AI to generate a more contextual response
+        try:
+            prompt = f"""Generate a brief, professional reply to this email.
+
+Action: {action_type.replace('_', ' ').title()}
+{f'Additional note to include: {custom_note}' if custom_note else ''}
+
+Original Email:
+From: {sender}
+Subject: {subject}
+Content: {body}
+
+Generate a concise, professional reply that:
+1. Addresses the sender by first name
+2. Clearly conveys the {action_type.replace('_', ' ')} intent
+3. Is 2-4 sentences maximum
+4. Ends with "Best regards" (no signature - it will be added)
+
+Return ONLY the email body text, no subject line or other metadata."""
+
+            response = await self._call_anthropic(prompt)
+            if response:
+                return response.strip()
+        except Exception as e:
+            logger.warning(f"AI quick reply failed, using template: {e}")
+
+        # Fallback to template
+        return templates.get(action_type, templates["acknowledge"])
+
+    def _needs_ai_response(self, body: str, action_type: str) -> bool:
+        """Determine if the email needs an AI-generated response or simple template."""
+        # Complex emails that need AI
+        complexity_indicators = [
+            "proposal", "contract", "offer", "negotiate", "deadline",
+            "urgent", "immediately", "asap", "problem", "issue",
+            "complaint", "refund", "cancel"
+        ]
+
+        body_lower = body.lower()
+        for indicator in complexity_indicators:
+            if indicator in body_lower:
+                return True
+
+        # Long emails might need more context
+        if len(body) > 300:
+            return True
+
+        return False
+
+    async def _detect_email_reference(self, message: str) -> Dict[str, Any]:
+        """
+        Detect if user's message references a specific email.
+        Returns extracted sender, subject keywords, and time hints.
+        """
+        prompt = f"""Analyze this message and determine if it references a specific email.
+
+Message: "{message}"
+
+Return JSON with:
+- has_reference: boolean - Does this reference a specific email (not just asking about emails in general)?
+- sender: string or null - Name or email of sender mentioned (e.g., "John", "Sarah", "john@example.com")
+- subject_keywords: array of strings - Keywords about the email topic/content
+- time_hint: string or null - Time reference like "today", "yesterday", "last week", "this morning"
+
+Examples:
+"Reply to John's email about the meeting" -> {{"has_reference": true, "sender": "John", "subject_keywords": ["meeting"], "time_hint": null}}
+"What's in my inbox?" -> {{"has_reference": false, "sender": null, "subject_keywords": [], "time_hint": null}}
+"The email Sarah sent yesterday about the proposal" -> {{"has_reference": true, "sender": "Sarah", "subject_keywords": ["proposal"], "time_hint": "yesterday"}}
+"Forward the budget email to Mike" -> {{"has_reference": true, "sender": null, "subject_keywords": ["budget"], "time_hint": null}}
+"Reply to the latest email from acme.com" -> {{"has_reference": true, "sender": "acme.com", "subject_keywords": [], "time_hint": "latest"}}
+
+Return ONLY valid JSON, no other text."""
+
+        try:
+            result = await self._call_anthropic(prompt, max_tokens=150, temperature=0.2)
+
+            # Parse JSON
+            import re
+            json_match = re.search(r'\{.*\}', result, re.DOTALL)
+            if json_match:
+                reference = json.loads(json_match.group())
+                logger.info(f"Detected email reference: {reference}")
+                return reference
+            else:
+                return {"has_reference": False, "sender": None, "subject_keywords": [], "time_hint": None}
+
+        except Exception as e:
+            logger.warning(f"Failed to detect email reference: {e}")
+            return {"has_reference": False, "sender": None, "subject_keywords": [], "time_hint": None}
+
+    async def _find_referenced_email(self, db: Session, user: User, reference: Dict[str, Any]) -> tuple:
+        """
+        Find email(s) matching the detected reference.
+        Returns: (single_match: Optional[Email], candidates: List[Email])
+        - If exactly one match: (email, [])
+        - If multiple matches: (None, [email1, email2, ...])
+        - If no matches: (None, [])
+        """
+        from datetime import datetime, timedelta
+
+        sender = reference.get("sender")
+        keywords = reference.get("subject_keywords", [])
+        time_hint = reference.get("time_hint")
+
+        # Build base query
+        query = db.query(Email).filter(
+            Email.user_id == user.id,
+            Email.deleted_at.is_(None)
+        )
+
+        # Apply time filter
+        if time_hint:
+            now = datetime.utcnow()
+            time_hint_lower = time_hint.lower()
+
+            if "today" in time_hint_lower:
+                query = query.filter(Email.received_at >= now.replace(hour=0, minute=0, second=0))
+            elif "yesterday" in time_hint_lower:
+                yesterday = now - timedelta(days=1)
+                query = query.filter(
+                    Email.received_at >= yesterday.replace(hour=0, minute=0, second=0),
+                    Email.received_at < now.replace(hour=0, minute=0, second=0)
+                )
+            elif "this week" in time_hint_lower or "last week" in time_hint_lower:
+                week_ago = now - timedelta(days=7)
+                query = query.filter(Email.received_at >= week_ago)
+            elif "this morning" in time_hint_lower:
+                query = query.filter(Email.received_at >= now.replace(hour=0, minute=0, second=0))
+            elif "latest" in time_hint_lower or "recent" in time_hint_lower:
+                # Just order by most recent, handled below
+                pass
+
+        # Get potential matches
+        emails = query.order_by(Email.received_at.desc()).limit(100).all()
+
+        if not emails:
+            return (None, [])
+
+        # Score each email based on how well it matches the reference
+        scored_emails = []
+
+        for email in emails:
+            score = 0
+
+            # Sender match (most important)
+            if sender:
+                sender_lower = sender.lower()
+                email_sender = (email.sender or "").lower()
+                email_sender_name = (email.sender_name or "").lower()
+
+                # Exact match on sender name or email
+                if sender_lower in email_sender or sender_lower in email_sender_name:
+                    score += 50
+                # Partial match on first name
+                elif email_sender_name and sender_lower in email_sender_name.split()[0]:
+                    score += 40
+                # Domain match
+                elif "@" in sender_lower and sender_lower in email_sender:
+                    score += 45
+
+            # Subject keyword matches
+            if keywords:
+                subject_lower = (email.subject or "").lower()
+                body_lower = (email.body_text or email.snippet or "").lower()[:500]
+
+                for keyword in keywords:
+                    keyword_lower = keyword.lower()
+                    if keyword_lower in subject_lower:
+                        score += 20
+                    elif keyword_lower in body_lower:
+                        score += 10
+
+            # Recency bonus (newer emails get slight preference)
+            if email.received_at:
+                days_ago = (datetime.utcnow() - email.received_at).days
+                if days_ago == 0:
+                    score += 5
+                elif days_ago <= 3:
+                    score += 3
+                elif days_ago <= 7:
+                    score += 1
+
+            if score > 0:
+                scored_emails.append((email, score))
+
+        if not scored_emails:
+            return (None, [])
+
+        # Sort by score descending
+        scored_emails.sort(key=lambda x: x[1], reverse=True)
+
+        # Log top matches for debugging
+        logger.info(f"Email reference search results (top 5):")
+        for email, score in scored_emails[:5]:
+            logger.info(f"  Score {score}: {email.sender_name or email.sender} - {email.subject}")
+
+        # If top match has significantly higher score, return it as single match
+        top_email, top_score = scored_emails[0]
+
+        if len(scored_emails) == 1:
+            return (top_email, [])
+
+        second_score = scored_emails[1][1]
+
+        # If top score is 2x+ higher than second, it's a clear match (even with lower absolute score)
+        # This handles cases where keyword match (20pts) is clearly the best match
+        if top_score >= 15 and (second_score == 0 or top_score >= second_score * 2):
+            return (top_email, [])
+
+        # Otherwise return top 3-5 as candidates for user to choose
+        candidates = [email for email, score in scored_emails[:5] if score >= top_score * 0.5]
+        return (None, candidates)
+
+    def _build_disambiguation_response(self, candidates: list, reference: Dict[str, Any]) -> str:
+        """Build HTML response for disambiguation when multiple emails match."""
+        sender = reference.get("sender", "")
+        keywords = reference.get("subject_keywords", [])
+
+        hint = ""
+        if sender:
+            hint = f" from {sender}"
+        if keywords:
+            hint += f" about {', '.join(keywords)}"
+
+        response = f"""<div class="mb-4">
+    <div class="flex items-center gap-2 mb-3">
+        <i class="fas fa-question-circle text-blue-500"></i>
+        <span class="font-medium text-gray-700">I found {len(candidates)} emails{hint}. Which one did you mean?</span>
+    </div>
+    <div class="space-y-2">"""
+
+        for email in candidates:
+            date_str = ""
+            if email.received_at:
+                date_str = email.received_at.strftime('%b %d, %H:%M')
+
+            sender_display = email.sender_name or email.sender or "Unknown"
+            subject_display = email.subject or "(No subject)"
+
+            # Escape for JavaScript
+            import html
+            subject_escaped = html.escape(subject_display).replace("'", "\\'").replace('"', '\\"')
+
+            response += f"""
+        <div class="bg-white border rounded-lg p-3 hover:shadow-md cursor-pointer transition-shadow"
+             onclick="selectEmailForReply('{email.id}', '{subject_escaped}')">
+            <div class="flex justify-between items-start mb-1">
+                <span class="font-medium text-sm text-blue-600">{html.escape(sender_display)}</span>
+                <span class="text-xs text-gray-500">{date_str}</span>
+            </div>
+            <div class="text-sm font-medium text-gray-800 truncate">{html.escape(subject_display)}</div>
+            <div class="text-xs text-gray-500 mt-1 truncate">{html.escape((email.snippet or '')[:100])}</div>
+        </div>"""
+
+        response += """
+    </div>
+    <p class="text-xs text-gray-500 mt-3">Click an email to select it, then I'll help you reply.</p>
+</div>"""
+
+        return response
+
     async def _reply_email(self, db: Session, user: User, message: str,
                           context: Dict[str, Any]) -> tuple:
         # Check if we have a selected email to reply to
         logger.info(f"Reply email context: {context.get('selected_email', 'None')}")
+
+        # If no email selected, try to auto-detect from message
         if not context or not context.get('selected_email'):
-            logger.error(f"No selected email in context. Context keys: {context.keys() if context else 'None'}")
-            logger.error(f"Context selected_email value: {context.get('selected_email') if context else 'No context'}")
-            return "Please select an email first, then ask me to reply to it.", []
+            logger.info("No selected email - attempting auto-detection from message")
+
+            # Detect email reference in user's message
+            reference = await self._detect_email_reference(message)
+
+            if reference.get("has_reference"):
+                # Try to find matching email
+                single_match, candidates = await self._find_referenced_email(db, user, reference)
+
+                if single_match:
+                    # Found a clear match - use it
+                    logger.info(f"Auto-detected email: {single_match.subject} from {single_match.sender_name or single_match.sender}")
+                    context['selected_email'] = {
+                        "id": single_match.id,
+                        "gmail_id": single_match.gmail_id,
+                        "thread_id": single_match.thread_id,
+                        "subject": single_match.subject,
+                        "sender": single_match.sender,
+                        "sender_name": single_match.sender_name,
+                        "body": single_match.body_text or single_match.body_html or single_match.snippet,
+                        "received_at": single_match.received_at.isoformat() if single_match.received_at else None
+                    }
+                    context['auto_detected_email'] = True
+
+                elif candidates:
+                    # Multiple matches - show disambiguation UI
+                    logger.info(f"Multiple email matches found: {len(candidates)}")
+                    response = self._build_disambiguation_response(candidates, reference)
+                    return response, ["email_disambiguation_needed"]
+
+                else:
+                    # No matches found
+                    sender_hint = reference.get("sender", "")
+                    keywords_hint = ", ".join(reference.get("subject_keywords", []))
+                    return f"I couldn't find an email matching your description{' from ' + sender_hint if sender_hint else ''}{' about ' + keywords_hint if keywords_hint else ''}. Please select an email first or be more specific.", []
+
+            else:
+                # No reference detected
+                logger.error(f"No selected email in context. Context keys: {context.keys() if context else 'None'}")
+                return "Please select an email first, then ask me to reply to it. Or describe the email you want to reply to (e.g., 'reply to John's email about the meeting').", []
 
         selected_email = context['selected_email']
 
@@ -1085,12 +1460,79 @@ Generate an appropriate reply based on the user's request and the original email
                 reply_context=selected_email
             )
             
-            # Escape the email body for JavaScript
-            escaped_body = formatted_email['body'].replace('\\', '\\\\').replace('`', '\\`').replace("'", "\\'").replace('"', '\\"').replace('\n', '\\n')
-            
-            # For SAIG Reply modal, just return the formatted body
-            # The frontend will handle the display
-            return formatted_email['body'], ["email_reply_created"]
+            # Get the email ID for the reply
+            email_id = selected_email.get('id', '')
+            recipient = selected_email.get('sender', '')
+
+            # Extract just the email address if it contains a name
+            import re as regex
+            email_match = regex.search(r'<([^>]+)>', recipient)
+            if email_match:
+                recipient_email = email_match.group(1)
+            else:
+                recipient_email = recipient
+
+            # Return email reply with preview card (matching compose_email style)
+            import uuid
+            import base64
+            preview_id = str(uuid.uuid4())
+
+            # Base64 encode the body to avoid escaping issues in onclick
+            body_b64 = base64.b64encode(formatted_email['body'].encode('utf-8')).decode('ascii')
+            subject_escaped = reply_subject.replace("'", "\\'").replace('"', '\\"')
+
+            response = f"""<div id="reply-preview-{preview_id}" class="rounded-lg bg-white border shadow-sm overflow-hidden my-3">
+    <!-- Header -->
+    <div class="px-4 py-3 border-b flex items-center justify-between" style="background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);">
+        <div class="flex items-center">
+            <i class="fas fa-reply text-white mr-2"></i>
+            <span class="text-white font-semibold">Reply Ready</span>
+        </div>
+        <button onclick="document.getElementById('reply-preview-{preview_id}').remove()"
+                class="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-1 transition-colors">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
+
+    <!-- Email Preview Content -->
+    <div class="p-4">
+        <!-- Metadata -->
+        <div class="space-y-2 mb-4 pb-4 border-b">
+            <div class="flex items-start">
+                <span class="text-gray-500 text-xs font-medium w-16">To:</span>
+                <span class="text-gray-900 text-sm font-medium">{selected_email.get('sender_name', recipient_email)}</span>
+            </div>
+            <div class="flex items-start">
+                <span class="text-gray-500 text-xs font-medium w-16">Subject:</span>
+                <span class="text-gray-900 text-sm font-medium">{reply_subject}</span>
+            </div>
+        </div>
+
+        <!-- Email Body -->
+        <div class="bg-gray-50 rounded-lg p-4 border-l-4 mb-4" style="border-left-color: #3b82f6;">
+            <div class="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{formatted_email['body']}</div>
+        </div>
+
+        <!-- Hidden data for JS -->
+        <input type="hidden" id="reply-body-{preview_id}" value="{body_b64}">
+
+        <!-- Action Buttons -->
+        <div class="flex space-x-3">
+            <button onclick="sendReplyFromCard('{email_id}', 'reply-body-{preview_id}', 'reply-preview-{preview_id}')"
+                    class="flex-1 text-white px-4 py-2.5 rounded-lg font-medium text-sm transition-all hover:opacity-90 shadow-sm"
+                    style="background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);">
+                <i class="fas fa-paper-plane mr-2"></i>Send Reply
+            </button>
+            <button onclick="editReplyFromCard('{email_id}', '{subject_escaped}', 'reply-body-{preview_id}', 'reply-preview-{preview_id}')"
+                    class="flex-1 bg-white border text-gray-700 px-4 py-2.5 rounded-lg font-medium text-sm transition-colors hover:bg-gray-50 shadow-sm"
+                    style="border-color: #3b82f6; color: #3b82f6;">
+                <i class="fas fa-edit mr-2"></i>Edit First
+            </button>
+        </div>
+    </div>
+</div>"""
+
+            return response, ["email_reply_created"]
             
         except Exception as e:
             logger.error(f"Error generating reply: {str(e)}")

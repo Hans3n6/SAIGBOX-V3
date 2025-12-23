@@ -20,7 +20,7 @@ from api.auth import (get_current_user, get_or_create_user, create_access_token,
                       get_microsoft_user_info, verify_oauth_state,
                       store_oauth_tokens, create_refresh_token)
 from api.models import *
-from api.routes import emails, actions, huddles, trash, saig, intelligence, urgent, cognito_auth, user, dashboard, sales_dashboard, prospecting
+from api.routes import emails, actions, huddles, trash, saig, intelligence, urgent, cognito_auth, user, dashboard, sales_dashboard, prospecting, company_agent
 from api.middleware import AuthMiddleware
 from core.database import get_db, User, Email
 from core.gmail_service import GmailService
@@ -73,6 +73,7 @@ app.include_router(urgent.router, prefix="/api/urgent", tags=["urgent"])
 app.include_router(cognito_auth.router, tags=["cognito-auth"])  # Note: prefix is in the router
 app.include_router(user.router, tags=["user"])  # Note: prefix is in the router
 app.include_router(prospecting.router, tags=["prospecting"])  # Note: prefix is in the router
+app.include_router(company_agent.router, tags=["company-agent"])  # Note: prefix is in the router
 
 # Email service instances
 gmail_service = GmailService()

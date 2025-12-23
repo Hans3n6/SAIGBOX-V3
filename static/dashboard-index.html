@@ -1513,12 +1513,12 @@
                             ${email.recipients ? `<div><strong>To:</strong> ${email.recipients.join(', ')}</div>` : ''}
                         </div>
                         
-                        <!-- AI Summary Section -->
+                        <!-- SAIG Advice Section -->
                         <div id="ai-summary-section-${emailId}" class="mb-4 border border-gray-200 rounded-lg overflow-hidden">
                             <button onclick="toggleAISummary('${emailId}')" class="w-full bg-gradient-to-r from-green-50 to-blue-50 hover:from-green-100 hover:to-blue-100 p-3 flex items-center justify-between transition-colors">
                                 <div class="flex items-center">
                                     <i class="fas fa-brain text-green-600 mr-2"></i>
-                                    <span class="font-semibold text-gray-700">AI Summary</span>
+                                    <span class="font-semibold text-gray-700">SAIG Advice</span>
                                 </div>
                                 <i id="ai-summary-arrow-${emailId}" class="fas fa-chevron-down text-gray-500 transition-transform"></i>
                             </button>
@@ -1670,7 +1670,190 @@
                 console.error('Error deleting email:', error);
             }
         }
-        
+
+        // Function to open email from action item in a modal
+        window.openEmailFromAction = async function(emailId) {
+            try {
+                // Find email from all loaded emails first
+                let email = allLoadedEmails.find(e => e.id === emailId);
+
+                if (!email) {
+                    // If not found locally, fetch from API
+                    const response = await fetch(`/api/emails/${emailId}`, {
+                        headers: authToken !== 'session' ? {
+                            'Authorization': `Bearer ${authToken}`
+                        } : {},
+                        credentials: 'include'
+                    });
+
+                    if (response.ok) {
+                        email = await response.json();
+                        // Add to loaded emails for future reference
+                        allLoadedEmails.push(email);
+                    } else {
+                        showNotification('Failed to load email', 'error');
+                        return;
+                    }
+                }
+
+                // Show the email in a modal
+                showEmailModal(email);
+
+            } catch (error) {
+                console.error('Error loading email:', error);
+                showNotification('Error loading email', 'error');
+            }
+        }
+
+        // Function to show email in modal
+        window.showEmailModal = function(email) {
+            // Create modal HTML
+            const modalHtml = `
+                <div id="email-view-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background-color: rgba(0, 0, 0, 0.5);">
+                    <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+                        <!-- Modal Header -->
+                        <div class="border-b px-6 py-4 flex justify-between items-start">
+                            <div class="flex-1 min-w-0">
+                                <h2 class="text-xl font-semibold text-gray-800 truncate">${escapeHtml(email.subject || '(No subject)')}</h2>
+                                <div class="text-sm text-gray-600 mt-1">
+                                    <span class="font-medium">From:</span> ${escapeHtml(email.sender_name || email.sender || 'Unknown')}
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1">
+                                    ${formatDate(email.received_at)}
+                                </div>
+                            </div>
+                            <button onclick="closeEmailModal()" class="ml-4 text-gray-400 hover:text-gray-600 text-2xl">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <!-- Modal Body -->
+                        <div class="flex-1 overflow-y-auto p-6">
+                            <div class="prose max-w-none" id="modal-email-body">
+                                <!-- Email body will be inserted here -->
+                            </div>
+                        </div>
+                        <!-- Modal Footer -->
+                        <div class="border-t px-6 py-4 flex flex-wrap gap-3 bg-gray-50">
+                            <button onclick="closeEmailModal(); switchView('email'); setTimeout(() => selectEmail('${email.id}'), 100);"
+                                    class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                                <i class="fas fa-envelope-open mr-2"></i>Open in Inbox
+                            </button>
+                            <button onclick="closeEmailModal(); saigReplyFromModal('${email.id}')"
+                                    class="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600">
+                                <i class="fas fa-robot mr-2"></i>SAIG Reply
+                            </button>
+                            <button onclick="closeEmailModal(); replyToEmail('${email.id}')"
+                                    class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600">
+                                <i class="fas fa-reply mr-2"></i>Reply
+                            </button>
+                            <button onclick="closeEmailModal()"
+                                    class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Add modal to page
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            // Safely insert email body
+            const bodyContainer = document.getElementById('modal-email-body');
+            if (bodyContainer) {
+                if (email.body_html) {
+                    // Create a temporary container to sanitize HTML
+                    const temp = document.createElement('div');
+                    temp.innerHTML = email.body_html;
+
+                    // Remove potentially dangerous elements
+                    temp.querySelectorAll('script, style, iframe, object, embed, form').forEach(el => el.remove());
+
+                    // Remove onclick and other event handlers
+                    temp.querySelectorAll('*').forEach(el => {
+                        for (const attr of [...el.attributes]) {
+                            if (attr.name.startsWith('on')) {
+                                el.removeAttribute(attr.name);
+                            }
+                        }
+                    });
+
+                    bodyContainer.innerHTML = temp.innerHTML;
+                } else if (email.body_text) {
+                    bodyContainer.innerHTML = '<pre class="whitespace-pre-wrap font-sans">' + escapeHtml(email.body_text) + '</pre>';
+                } else {
+                    bodyContainer.innerHTML = '<p class="text-gray-500 italic">No content available</p>';
+                }
+            }
+
+            // Close modal on background click
+            document.getElementById('email-view-modal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeEmailModal();
+                }
+            });
+
+            // Close modal on Escape key
+            document.addEventListener('keydown', function escHandler(e) {
+                if (e.key === 'Escape') {
+                    closeEmailModal();
+                    document.removeEventListener('keydown', escHandler);
+                }
+            });
+        }
+
+        // Close email modal
+        window.closeEmailModal = function() {
+            const modal = document.getElementById('email-view-modal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        // SAIG Reply from modal - switches to SAIG tab and triggers reply
+        window.saigReplyFromModal = async function(emailId) {
+            try {
+                // Find the email
+                let email = allLoadedEmails.find(e => e.id === emailId);
+                if (!email) {
+                    const response = await fetch(`/api/emails/${emailId}`, {
+                        headers: authToken !== 'session' ? {
+                            'Authorization': `Bearer ${authToken}`
+                        } : {},
+                        credentials: 'include'
+                    });
+                    if (response.ok) {
+                        email = await response.json();
+                    } else {
+                        showNotification('Failed to load email for SAIG reply', 'error');
+                        return;
+                    }
+                }
+
+                // Switch to SAIG view
+                switchView('saig');
+
+                // Wait for view to switch, then trigger SAIG reply
+                setTimeout(() => {
+                    // Set the selected email in SAIG context
+                    if (window.setSelectedEmailForSAIG) {
+                        window.setSelectedEmailForSAIG(email);
+                    }
+
+                    // Find the SAIG input and pre-populate with reply request
+                    const saigInput = document.getElementById('saig-input') || document.querySelector('[data-saig-input]');
+                    if (saigInput) {
+                        saigInput.value = `Please read this email and generate a professional reply.\n\nSubject: ${email.subject}\nFrom: ${email.sender_name || email.sender}`;
+                        saigInput.focus();
+                        showNotification('Email loaded in SAIG. Press Enter to generate a reply.', 'info');
+                    }
+                }, 200);
+            } catch (error) {
+                console.error('Error setting up SAIG reply:', error);
+                showNotification('Error setting up SAIG reply', 'error');
+            }
+        }
+
         async function toggleUrgency(emailId) {
             const email = emails.find(e => e.id === emailId);
             if (!email) return;
@@ -2702,7 +2885,7 @@
             }
         }
         
-        // AI Summary functionality
+        // SAIG Advice functionality
         let aiSummaryCache = {};
         
         async function toggleAISummary(emailId) {

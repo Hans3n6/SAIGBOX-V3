@@ -417,8 +417,8 @@
                     <!-- Action Buttons -->
                     <div class="flex items-center justify-between">
                         <div class="flex gap-2">
-                            <button onclick="askSaigToHelp()" class="px-4 py-2 text-green-600 hover:bg-green-50 rounded-lg" title="Get AI help">
-                                <i class="fas fa-robot mr-2"></i>AI Help
+                            <button onclick="askSaigToHelp()" class="px-4 py-2 rounded-lg hover:opacity-90" style="background-color: #7fc97f; color: white;" title="Get SAIG help">
+                                <i class="fas fa-leaf mr-2"></i>SAIG Help
                             </button>
                             <button onclick="showCTASuggestions()" class="px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Get CTA suggestions">
                                 <i class="fas fa-bullhorn mr-2"></i>CTA Tips

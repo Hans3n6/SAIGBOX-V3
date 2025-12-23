@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 from api.auth import get_current_user
 from api.models import Email, TrashEmptyResponse
-from core.database import get_db, User, Email as EmailModel
+from core.database import get_db, User, Email as EmailModel, ActionItem
 from core.gmail_service import GmailService
 from core.outlook_service import OutlookService
 import logging
@@ -90,10 +90,10 @@ async def permanently_delete_email(
         EmailModel.user_id == current_user.id,
         EmailModel.deleted_at.isnot(None)
     ).first()
-    
+
     if not email:
         raise HTTPException(status_code=404, detail="Trashed email not found")
-    
+
     # Permanently delete from email provider first
     if email.gmail_id:
         success = gmail_service.permanently_delete(current_user, email.gmail_id)
@@ -105,11 +105,14 @@ async def permanently_delete_email(
         if not success:
             logger.warning(f"Failed to permanently delete email {email.outlook_id} from Outlook")
             # Continue anyway to remove from local database
-    
+
+    # Delete associated action items (if any remain)
+    db.query(ActionItem).filter(ActionItem.email_id == email_id).delete(synchronize_session=False)
+
     # Permanently delete from database
     db.delete(email)
     db.commit()
-    
+
     return {"success": True, "message": "Email permanently deleted"}
 
 @router.delete("/empty", response_model=TrashEmptyResponse)
@@ -123,10 +126,15 @@ async def empty_trash(
         EmailModel.user_id == current_user.id,
         EmailModel.deleted_at.isnot(None)
     ).all()
-    
+
     deleted_count = len(trashed_emails)
     gmail_deleted = 0
-    
+    email_ids = [email.id for email in trashed_emails]
+
+    # Delete all action items associated with trashed emails
+    if email_ids:
+        db.query(ActionItem).filter(ActionItem.email_id.in_(email_ids)).delete(synchronize_session=False)
+
     # Delete all trashed emails from Gmail and database
     for email in trashed_emails:
         # Try to delete from Gmail first
@@ -136,14 +144,14 @@ async def empty_trash(
                 gmail_deleted += 1
             else:
                 logger.warning(f"Failed to permanently delete email {email.gmail_id} from Gmail")
-        
+
         # Always delete from local database
         db.delete(email)
-    
+
     db.commit()
-    
+
     logger.info(f"Emptied trash: {deleted_count} emails deleted locally, {gmail_deleted} deleted from Gmail")
-    
+
     return TrashEmptyResponse(
         deleted_count=deleted_count,
         success=True,
@@ -157,17 +165,22 @@ async def auto_clean_trash(
 ):
     """Auto-delete emails that have been in trash for 30+ days"""
     cutoff_date = datetime.utcnow() - timedelta(days=30)
-    
+
     # Find old trashed emails
     old_emails = db.query(EmailModel).filter(
         EmailModel.user_id == current_user.id,
         EmailModel.deleted_at.isnot(None),
         EmailModel.deleted_at < cutoff_date
     ).all()
-    
+
     deleted_count = len(old_emails)
     gmail_deleted = 0
-    
+    email_ids = [email.id for email in old_emails]
+
+    # Delete all action items associated with old trashed emails
+    if email_ids:
+        db.query(ActionItem).filter(ActionItem.email_id.in_(email_ids)).delete(synchronize_session=False)
+
     # Delete old emails from Gmail and database
     for email in old_emails:
         # Try to delete from Gmail first
@@ -177,14 +190,14 @@ async def auto_clean_trash(
                 gmail_deleted += 1
             else:
                 logger.warning(f"Failed to permanently delete old email {email.gmail_id} from Gmail")
-        
+
         # Always delete from local database
         db.delete(email)
-    
+
     db.commit()
-    
+
     logger.info(f"Auto-cleaned trash: {deleted_count} emails deleted locally, {gmail_deleted} deleted from Gmail")
-    
+
     return {
         "success": True,
         "deleted_count": deleted_count,

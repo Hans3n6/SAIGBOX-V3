@@ -276,3 +276,43 @@ async def get_crawl_progress(user: User = Depends(get_current_user)):
     """Get real-time crawl progress"""
     agent = get_agent(user.email)
     return agent.get_crawl_progress()
+
+
+class GenerateDemoEmailsRequest(BaseModel):
+    count: int = Field(default=10, ge=1, le=50, description="Number of demo emails to generate")
+    clear_existing: bool = Field(default=True, description="Clear existing demo emails first")
+
+
+@router.post("/generate-demo-emails")
+async def generate_demo_emails(
+    request: GenerateDemoEmailsRequest,
+    user: User = Depends(get_current_user)
+):
+    """
+    Generate realistic demo emails based on company knowledge.
+    These emails simulate real sales inquiries, pricing requests, etc.
+    """
+    from sqlalchemy.orm import Session
+    from core.database import get_db
+    from core.demo_email_generator import generate_and_insert_demo_emails
+
+    agent = get_agent(user.email)
+
+    # Get database session
+    db = next(get_db())
+
+    try:
+        result = await generate_and_insert_demo_emails(
+            db=db,
+            user=user,
+            bedrock_client=get_bedrock_client(),
+            knowledge_store=agent.knowledge_store,
+            count=request.count,
+            clear_existing=request.clear_existing
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error generating demo emails: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()

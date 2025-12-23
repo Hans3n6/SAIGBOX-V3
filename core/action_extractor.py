@@ -16,6 +16,120 @@ from core.saig_assistant import SAIGAssistant
 logger = logging.getLogger(__name__)
 
 
+class ActionableContentChecker:
+    """
+    Fast, regex-based checker to identify emails likely to contain action items.
+    No AI required - uses keyword patterns to pre-filter before expensive AI extraction.
+    """
+
+    # Patterns that suggest actionable content
+    PATTERNS = {
+        # Direct requests
+        'request_phrases': [
+            r'\b(please|kindly|could you|can you|would you|will you)\b',
+            r'\b(need you to|asking you to|want you to|require you to)\b',
+            r'\b(let me know|get back to me|respond|reply)\b',
+        ],
+        # Deadline indicators
+        'deadline_phrases': [
+            r'\b(by|before|deadline|due|due date)\b',
+            r'\b(asap|urgent|urgently|immediately|right away)\b',
+            r'\b(eod|eow|end of day|end of week|end of month)\b',
+            r'\b(by (monday|tuesday|wednesday|thursday|friday|tomorrow|today))\b',
+            r'\b(this week|next week|by \d{1,2}[\/\-]\d{1,2})\b',
+        ],
+        # Action verbs (imperative or request form)
+        'action_verbs': [
+            r'\b(send|submit|review|approve|confirm|update|provide|complete)\b',
+            r'\b(schedule|call|meet|discuss|prepare|finalize|sign)\b',
+            r'\b(forward|share|attach|upload|download|check)\b',
+            r'\b(follow up|follow-up|followup|reach out)\b',
+        ],
+        # Questions that need response
+        'questions': [
+            r'\?',  # Any question mark
+            r'\b(what|when|where|who|how|which|why)\b.*\?',
+        ],
+        # Meeting/call requests
+        'meeting_requests': [
+            r'\b(meeting|call|zoom|teams|google meet|webex)\b',
+            r'\b(availability|available|schedule a|set up a)\b',
+            r'\b(calendar invite|book a time|find a time)\b',
+        ],
+    }
+
+    # Compile patterns for efficiency
+    _compiled_patterns = None
+
+    @classmethod
+    def _get_compiled_patterns(cls) -> Dict[str, List[re.Pattern]]:
+        """Compile patterns once and cache them"""
+        if cls._compiled_patterns is None:
+            cls._compiled_patterns = {}
+            for category, patterns in cls.PATTERNS.items():
+                cls._compiled_patterns[category] = [
+                    re.compile(p, re.IGNORECASE) for p in patterns
+                ]
+        return cls._compiled_patterns
+
+    @classmethod
+    def has_actionable_content(cls, email: Email, min_score: int = 2) -> tuple[bool, int, List[str]]:
+        """
+        Check if email likely contains actionable content.
+
+        Args:
+            email: Email object to check
+            min_score: Minimum score to consider actionable (default: 2)
+
+        Returns:
+            Tuple of (is_actionable, score, matched_categories)
+        """
+        content = (email.body_text or email.body_html or email.snippet or "").lower()
+        subject = (email.subject or "").lower()
+        full_text = f"{subject} {content}"
+
+        if not full_text.strip():
+            return False, 0, []
+
+        patterns = cls._get_compiled_patterns()
+        score = 0
+        matched_categories = []
+
+        for category, compiled_list in patterns.items():
+            for pattern in compiled_list:
+                if pattern.search(full_text):
+                    score += 1
+                    if category not in matched_categories:
+                        matched_categories.append(category)
+                    break  # Only count each category once
+
+        # Bonus: subject line matches are stronger signals
+        for category, compiled_list in patterns.items():
+            for pattern in compiled_list:
+                if pattern.search(subject):
+                    score += 1  # Extra point for subject match
+                    break
+
+        is_actionable = score >= min_score
+
+        logger.debug(
+            f"Email {email.id[:8]}... actionable check: score={score}, "
+            f"min={min_score}, result={is_actionable}, categories={matched_categories}"
+        )
+
+        return is_actionable, score, matched_categories
+
+    @classmethod
+    def get_actionable_emails(cls, emails: List[Email], min_score: int = 2) -> List[Email]:
+        """Filter a list of emails to only those with actionable content"""
+        actionable = []
+        for email in emails:
+            is_actionable, score, _ = cls.has_actionable_content(email, min_score)
+            if is_actionable:
+                actionable.append(email)
+        return actionable
+
+
 class ActionItemExtractor:
     """AI-powered action item extraction from emails"""
 

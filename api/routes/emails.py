@@ -221,6 +221,117 @@ async def get_email(
         updated_at=email.updated_at or email.created_at or datetime.utcnow()
     )
 
+@router.get("/{email_id}/suggestions")
+async def get_email_suggestions(
+    email_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get smart reply suggestions for an email"""
+    email = db.query(EmailModel).filter(
+        EmailModel.id == email_id,
+        EmailModel.user_id == current_user.id
+    ).first()
+
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    # Analyze email and generate suggestions
+    suggestions = generate_email_suggestions(
+        subject=email.subject or "",
+        sender=email.sender or "",
+        sender_name=email.sender_name or "",
+        body=email.body_text or email.snippet or ""
+    )
+
+    return {
+        "suggestions": suggestions,
+        "email_analysis": {
+            "is_question": any(s["intent"] == "question" for s in suggestions),
+            "is_request": any(s["intent"] in ["accept", "decline"] for s in suggestions),
+            "is_scheduling": any(s["intent"] == "schedule" for s in suggestions),
+            "suggested_action": suggestions[0]["intent"] if suggestions else None
+        }
+    }
+
+def generate_email_suggestions(subject: str, sender: str, sender_name: str, body: str) -> list:
+    """Generate smart reply suggestions based on email content analysis."""
+    suggestions = []
+    body_lower = body.lower()
+    subject_lower = subject.lower()
+
+    # Extract first name
+    first_name = sender_name.split()[0] if sender_name else "there"
+    if not first_name or first_name == "there":
+        if sender and '<' in sender:
+            first_name = sender.split('<')[0].strip().strip('"').split()[0]
+        elif sender:
+            first_name = sender.split('@')[0].capitalize()
+
+    # Detect email intent and generate appropriate suggestions
+    is_question = '?' in body or any(q in body_lower for q in ['could you', 'can you', 'would you', 'do you', 'are you', 'have you', 'what', 'when', 'where', 'how', 'why'])
+    is_meeting_request = any(m in body_lower for m in ['meeting', 'schedule', 'call', 'available', 'calendar', 'time to chat', 'discuss'])
+    is_request = any(r in body_lower for r in ['please', 'could you', 'can you', 'would you mind', 'need you to', 'request'])
+    is_info_share = any(i in body_lower for i in ['fyi', 'for your information', 'wanted to share', 'letting you know', 'update', 'attached'])
+    is_thank_you = any(t in body_lower for t in ['thank you', 'thanks', 'appreciate'])
+
+    # Generate contextual suggestions
+    if is_meeting_request:
+        suggestions.append({
+            "text": f"Hi {first_name},\n\nI'd be happy to schedule a call. I'm available [suggest times]. Let me know what works best for you.\n\nBest regards",
+            "intent": "schedule",
+            "tone": "professional",
+            "confidence": 0.9
+        })
+        suggestions.append({
+            "text": f"Hi {first_name},\n\nThank you for reaching out. Unfortunately, my schedule is quite full at the moment. Could we revisit this next week?\n\nBest regards",
+            "intent": "defer",
+            "tone": "professional",
+            "confidence": 0.7
+        })
+
+    if is_request:
+        suggestions.append({
+            "text": f"Hi {first_name},\n\nAbsolutely, I'll take care of this right away. You can expect an update shortly.\n\nBest regards",
+            "intent": "accept",
+            "tone": "professional",
+            "confidence": 0.85
+        })
+        suggestions.append({
+            "text": f"Hi {first_name},\n\nI appreciate you reaching out. Unfortunately, I won't be able to accommodate this request at this time. Let me know if there's another way I can help.\n\nBest regards",
+            "intent": "decline",
+            "tone": "professional",
+            "confidence": 0.75
+        })
+
+    if is_question:
+        suggestions.append({
+            "text": f"Hi {first_name},\n\nThank you for your question. Let me look into this and get back to you with a detailed response.\n\nBest regards",
+            "intent": "question",
+            "tone": "professional",
+            "confidence": 0.8
+        })
+
+    if is_info_share or is_thank_you:
+        suggestions.append({
+            "text": f"Hi {first_name},\n\nThank you for sharing this. I've noted the information and will follow up if I have any questions.\n\nBest regards",
+            "intent": "acknowledge",
+            "tone": "professional",
+            "confidence": 0.8
+        })
+
+    # Always add a generic acknowledgment as fallback
+    if len(suggestions) < 3:
+        suggestions.append({
+            "text": f"Hi {first_name},\n\nThank you for your email. I've received your message and will review it shortly.\n\nBest regards",
+            "intent": "acknowledge",
+            "tone": "professional",
+            "confidence": 0.7
+        })
+
+    # Limit to top 4 suggestions
+    return suggestions[:4]
+
 @router.put("/{email_id}/read")
 async def mark_as_read(
     email_id: str,
@@ -236,12 +347,13 @@ async def mark_as_read(
     if not email:
         raise HTTPException(status_code=404, detail="Email not found")
     
-    # Update in Gmail
-    if email.gmail_id and not email.is_read:
+    # Update in Gmail (skip for demo emails)
+    if email.gmail_id and not email.is_read and not email.gmail_id.startswith("demo_"):
         success = gmail_service.mark_as_read(current_user, email.gmail_id)
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to update Gmail")
-    
+            logger.warning(f"Failed to mark email {email.gmail_id} as read in Gmail")
+            # Don't fail the request - just update locally
+
     # Update in database
     email.is_read = True
     db.commit()
@@ -263,12 +375,13 @@ async def mark_as_unread(
     if not email:
         raise HTTPException(status_code=404, detail="Email not found")
     
-    # Update in Gmail
-    if email.gmail_id and email.is_read:
+    # Update in Gmail (skip for demo emails)
+    if email.gmail_id and email.is_read and not email.gmail_id.startswith("demo_"):
         success = gmail_service.mark_as_unread(current_user, email.gmail_id)
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to update Gmail")
-    
+            logger.warning(f"Failed to mark email {email.gmail_id} as unread in Gmail")
+            # Don't fail the request - just update locally
+
     # Update in database
     email.is_read = False
     db.commit()
@@ -292,17 +405,18 @@ async def star_email(
     
     # Toggle star status
     new_status = not email.is_starred
-    
-    # Update in Gmail
-    if email.gmail_id:
+
+    # Update in Gmail (skip for demo emails)
+    if email.gmail_id and not email.gmail_id.startswith("demo_"):
         if new_status:
             success = gmail_service.star_email(current_user, email.gmail_id)
         else:
             success = gmail_service.unstar_email(current_user, email.gmail_id)
-        
+
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to update Gmail")
-    
+            logger.warning(f"Failed to {'star' if new_status else 'unstar'} email {email.gmail_id} in Gmail")
+            # Don't fail the request - just update locally
+
     # Update in database
     email.is_starred = new_status
     db.commit()
@@ -325,34 +439,41 @@ async def delete_email(
         EmailModel.user_id == current_user.id,
         EmailModel.deleted_at.is_(None)
     ).first()
-    
+
     if not email:
         raise HTTPException(status_code=404, detail="Email not found")
-    
+
     # Move to trash in Gmail
     if email.gmail_id:
         success = gmail_service.move_to_trash(current_user, email.gmail_id)
         if not success:
             # Log the error but don't fail completely
             logger.error(f"Failed to move email {email.gmail_id} to Gmail trash, will mark as deleted locally")
-    
+
+    # Delete associated action items
+    deleted_actions = db.query(ActionItem).filter(
+        ActionItem.email_id == email_id
+    ).delete(synchronize_session=False)
+    if deleted_actions > 0:
+        logger.info(f"Deleted {deleted_actions} action items associated with email {email_id}")
+
     # Soft delete in database and update labels
     email.deleted_at = datetime.utcnow()
-    
+
     # Update labels to reflect trash status
     if not email.labels:
         email.labels = []
-    
+
     # Add TRASH label
     if 'TRASH' not in email.labels:
         email.labels.append('TRASH')
-    
+
     # Remove INBOX label if present
     if 'INBOX' in email.labels:
         email.labels.remove('INBOX')
-    
+
     db.commit()
-    
+
     return {"success": True, "message": "Email moved to trash"}
 
 @router.post("/compose", response_model=dict)

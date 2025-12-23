@@ -10,7 +10,9 @@ source venv/bin/activate
 
 # Load environment variables from .env file
 if [ -f .env ]; then
-    export $(grep -v '^#' .env | xargs)
+    set -a
+    source .env
+    set +a
 fi
 
 # Set AWS Bedrock flag

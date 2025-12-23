@@ -37,6 +37,18 @@ class ProfileScraper:
         "/customers",
         "/testimonials",
         "/case-studies",
+        # Sales-critical pages for competitor/pricing/objection info
+        "/pricing",
+        "/plans",
+        "/compare",
+        "/comparison",
+        "/vs",
+        "/faq",
+        "/faqs",
+        "/why-us",
+        "/why-choose-us",
+        "/industries",
+        "/who-we-serve",
     ]
 
     def __init__(self, bedrock_client=None):
@@ -220,8 +232,8 @@ class ProfileScraper:
         # Prepare content for AI
         combined_content = self._prepare_content_for_ai(scraped_data)
 
-        prompt = f"""Analyze this company website content and extract business profile information.
-Return a JSON object with these fields (use null if not found):
+        prompt = f"""Analyze this company website content and extract business profile information for sales purposes.
+Return a JSON object with these fields (use null if not found, empty array [] for lists with no data):
 
 {{
     "company_name": "Company's official name",
@@ -231,19 +243,45 @@ Return a JSON object with these fields (use null if not found):
     "value_proposition": "Main value proposition (1-2 sentences)",
     "elevator_pitch": "Company description suitable for an elevator pitch (2-3 sentences)",
     "products_services": [
-        {{"name": "Product/Service Name", "description": "Brief description"}}
+        {{"name": "Product/Service Name", "description": "Brief description", "key_benefit": "Main benefit"}}
     ],
     "key_differentiators": ["What makes them unique 1", "What makes them unique 2"],
     "unique_selling_points": ["USP 1", "USP 2"],
     "target_market": "Who they sell to",
     "notable_clients": ["Client 1", "Client 2"],
     "case_studies": [
-        {{"title": "Case Study Title", "summary": "Brief summary"}}
+        {{"title": "Case Study Title", "summary": "Brief summary", "result": "Key metric/outcome"}}
     ],
-    "social_proof_stats": {{"customers": "number or null", "years_in_business": "number or null"}},
+    "social_proof_stats": {{"customers": "number or null", "years_in_business": "number or null", "satisfaction_rate": "percentage or null"}},
     "suggested_target_industries": ["Industry 1", "Industry 2"],
-    "suggested_target_titles": ["Job Title 1", "Job Title 2"]
+    "suggested_target_titles": ["Job Title 1", "Job Title 2"],
+
+    "competitors": [
+        {{"name": "Competitor name mentioned or implied", "our_advantage": "How this company is better"}}
+    ],
+    "common_objections": [
+        {{"objection": "Common concern (infer from FAQ or messaging)", "response": "How they address it"}}
+    ],
+    "customer_pain_points": ["Pain point this company solves 1", "Pain point 2"],
+    "solutions_to_pain_points": [
+        {{"pain": "The pain point", "solution": "How they solve it"}}
+    ],
+    "pricing_model": "subscription/one-time/freemium/custom/contact-sales (infer from pricing page)",
+    "pricing_tiers": [
+        {{"name": "Tier name", "price": "Price if shown", "features": ["Feature 1", "Feature 2"]}}
+    ],
+    "target_decision_makers": ["CEO", "VP Operations", "Procurement Manager"],
+    "target_company_sizes": ["SMB", "Mid-market", "Enterprise"],
+    "sales_cycle_hint": "short/medium/long (infer from product complexity and pricing)"
 }}
+
+EXTRACTION TIPS:
+- Look for FAQ sections to infer common objections and how they're addressed
+- Look for "vs" or comparison language to identify competitors
+- Look for "for [role]" or "teams" language to infer target decision makers
+- Look for pricing pages to understand deal sizes and model
+- Look for industries served or "who we serve" sections
+- Extract pain points from problem statements or "challenges" sections
 
 Website content:
 {combined_content}
@@ -255,7 +293,7 @@ Return ONLY valid JSON, no other text."""
                 modelId="anthropic.claude-3-haiku-20240307-v1:0",
                 body=json.dumps({
                     "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 2000,
+                    "max_tokens": 4000,
                     "messages": [{"role": "user", "content": prompt}]
                 })
             )
@@ -317,7 +355,17 @@ Return ONLY valid JSON, no other text."""
             "case_studies": [],
             "social_proof_stats": {},
             "suggested_target_industries": [],
-            "suggested_target_titles": []
+            "suggested_target_titles": [],
+            # New sales-critical fields
+            "competitors": [],
+            "common_objections": [],
+            "customer_pain_points": [],
+            "solutions_to_pain_points": [],
+            "pricing_model": None,
+            "pricing_tiers": [],
+            "target_decision_makers": [],
+            "target_company_sizes": [],
+            "sales_cycle_hint": None
         }
 
         # Extract from homepage

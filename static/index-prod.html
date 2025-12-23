@@ -1501,12 +1501,12 @@
                             ${email.recipients ? `<div><strong>To:</strong> ${email.recipients.join(', ')}</div>` : ''}
                         </div>
                         
-                        <!-- AI Summary Section -->
+                        <!-- SAIG Advice Section -->
                         <div id="ai-summary-section-${emailId}" class="mb-4 border border-gray-200 rounded-lg overflow-hidden">
                             <button onclick="toggleAISummary('${emailId}')" class="w-full bg-gradient-to-r from-green-50 to-blue-50 hover:from-green-100 hover:to-blue-100 p-3 flex items-center justify-between transition-colors">
                                 <div class="flex items-center">
                                     <i class="fas fa-brain text-green-600 mr-2"></i>
-                                    <span class="font-semibold text-gray-700">AI Summary</span>
+                                    <span class="font-semibold text-gray-700">SAIG Advice</span>
                                 </div>
                                 <i id="ai-summary-arrow-${emailId}" class="fas fa-chevron-down text-gray-500 transition-transform"></i>
                             </button>
@@ -2690,7 +2690,7 @@
             }
         }
         
-        // AI Summary functionality
+        // SAIG Advice functionality
         let aiSummaryCache = {};
         
         async function toggleAISummary(emailId) {

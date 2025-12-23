@@ -617,6 +617,225 @@ Either way, {cta}
 
         return f"{email_body}\n\n{urgency_text}"
 
+    def get_role_specific_talking_points(
+        self,
+        recipient_role: str,
+        business_profile: Dict[str, Any],
+        recipient_industry: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get talking points, objections, and personalization suggestions based on recipient role.
+
+        Uses industry templates + business profile to provide role-specific sales intelligence.
+
+        Args:
+            recipient_role: The recipient's job title/role (e.g., "CEO", "VP of Operations")
+            business_profile: The user's business profile data
+            recipient_industry: Optional industry of the recipient's company
+
+        Returns:
+            Dict with relevant_objections, talking_points, pain_points, and suggested_angle
+        """
+        from core.industry_templates import get_industry_template, get_all_industries
+
+        result = {
+            "relevant_objections": [],
+            "talking_points": [],
+            "pain_points": [],
+            "suggested_angle": "",
+            "cta_suggestion": "",
+            "personalization_tips": []
+        }
+
+        role_lower = recipient_role.lower() if recipient_role else ""
+
+        # Determine which industry template to use
+        industry = recipient_industry or business_profile.get("industry", "")
+        template = get_industry_template(industry) if industry else {}
+
+        # Get objections from business profile first, then supplement from template
+        profile_objections = business_profile.get("common_objections", [])
+        template_objections = template.get("common_objections", [])
+
+        # Combine unique objections
+        all_objections = list(profile_objections)
+        for obj in template_objections:
+            exists = any(o.get("objection") == obj.get("objection") for o in all_objections)
+            if not exists:
+                all_objections.append(obj)
+
+        # Role-based filtering - what concerns does each role typically have?
+        role_priorities = {
+            "ceo": ["roi", "growth", "competitive", "strategic", "risk", "revenue"],
+            "cfo": ["cost", "roi", "budget", "margin", "expensive", "investment", "price"],
+            "cto": ["integration", "security", "technical", "scale", "build", "technology"],
+            "coo": ["efficiency", "operations", "process", "implementation", "time"],
+            "vp": ["team", "productivity", "results", "performance", "capacity"],
+            "director": ["implementation", "resources", "team", "process", "results"],
+            "manager": ["time", "team", "easy", "training", "workflow", "adoption"],
+            "owner": ["cost", "roi", "risk", "growth", "compete"]
+        }
+
+        # Find matching role category
+        matched_priorities = []
+        for role_key, priorities in role_priorities.items():
+            if role_key in role_lower:
+                matched_priorities = priorities
+                break
+
+        # If no match, use general priorities
+        if not matched_priorities:
+            matched_priorities = ["roi", "results", "implementation", "cost"]
+
+        # Filter objections by role relevance
+        for obj in all_objections:
+            objection_text = obj.get("objection", "").lower()
+            if any(priority in objection_text for priority in matched_priorities):
+                result["relevant_objections"].append(obj)
+
+        # If we didn't find role-specific objections, include top general ones
+        if len(result["relevant_objections"]) < 2 and all_objections:
+            result["relevant_objections"] = all_objections[:3]
+
+        # Get pain points from business profile
+        pain_points = business_profile.get("customer_pain_points", [])
+        if not pain_points and template:
+            pain_points = template.get("customer_pain_points", [])
+
+        # Filter pain points by role relevance
+        for pp in pain_points:
+            pp_lower = pp.lower() if isinstance(pp, str) else ""
+            if any(priority in pp_lower for priority in matched_priorities):
+                result["pain_points"].append(pp)
+
+        if len(result["pain_points"]) < 2:
+            result["pain_points"] = pain_points[:3]
+
+        # Generate talking points based on products/services and differentiators
+        products = business_profile.get("products_services", [])
+        differentiators = business_profile.get("key_differentiators", [])
+        usps = business_profile.get("unique_selling_points", [])
+
+        # Build talking points
+        if products:
+            for product in products[:2]:
+                if isinstance(product, dict):
+                    benefit = product.get("key_benefit") or product.get("description", "")
+                    if benefit:
+                        result["talking_points"].append(f"Our {product.get('name', 'solution')} helps with {benefit}")
+
+        for diff in differentiators[:2]:
+            result["talking_points"].append(f"We differentiate by: {diff}")
+
+        for usp in usps[:2]:
+            result["talking_points"].append(f"Key advantage: {usp}")
+
+        # Suggested approach based on role
+        role_angles = {
+            "ceo": "Focus on strategic value, competitive advantage, and high-level ROI. Keep it brief and business-focused.",
+            "cfo": "Lead with cost savings, ROI numbers, and financial impact. Be specific about pricing and value.",
+            "cto": "Emphasize technical capabilities, security, and integration ease. Offer technical deep-dives.",
+            "coo": "Focus on operational efficiency, implementation timeline, and process improvements.",
+            "vp": "Highlight team productivity gains and how it helps them hit their goals.",
+            "director": "Show how it makes their team more effective and reduces their workload.",
+            "manager": "Emphasize ease of use, quick onboarding, and day-to-day time savings.",
+            "owner": "Balance cost concerns with growth potential. Speak their language."
+        }
+
+        for role_key, angle in role_angles.items():
+            if role_key in role_lower:
+                result["suggested_angle"] = angle
+                break
+
+        if not result["suggested_angle"]:
+            result["suggested_angle"] = "Focus on specific value and keep the message concise and relevant."
+
+        # CTA suggestion based on role
+        role_ctas = {
+            "ceo": "Would a 15-minute strategic overview be valuable?",
+            "cfo": "Can I send over an ROI analysis for your review?",
+            "cto": "Would you like to see the technical architecture?",
+            "coo": "Open to a quick walkthrough of the implementation process?",
+            "vp": "Worth a conversation about how this could help your team?",
+            "director": "Can I show you how this works in practice?",
+            "manager": "Would a quick demo be helpful?",
+        }
+
+        for role_key, cta in role_ctas.items():
+            if role_key in role_lower:
+                result["cta_suggestion"] = cta
+                break
+
+        if not result["cta_suggestion"]:
+            result["cta_suggestion"] = "Would a brief conversation be helpful?"
+
+        # Personalization tips
+        result["personalization_tips"] = [
+            f"As a {recipient_role}, they likely care about: {', '.join(matched_priorities[:3])}",
+            "Reference their company's specific situation if known",
+            "Keep initial outreach under 100 words for executives",
+        ]
+
+        return result
+
+    def compose_with_intelligence(
+        self,
+        recipient_email: str,
+        recipient_name: str,
+        recipient_role: str,
+        recipient_company: str,
+        business_profile: Dict[str, Any],
+        email_type: str = "cold_outreach",
+        additional_context: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """
+        Compose an email using full sales intelligence from business profile and industry templates.
+
+        Returns the email draft plus the intelligence used to generate it.
+        """
+        # Get role-specific talking points
+        intelligence = self.get_role_specific_talking_points(
+            recipient_role,
+            business_profile,
+            recipient_industry=additional_context.get("recipient_industry") if additional_context else None
+        )
+
+        # Build context for email composition
+        context = {
+            "first_name": recipient_name.split()[0] if recipient_name else "there",
+            "company": recipient_company,
+            "role": recipient_role,
+            "industry": additional_context.get("recipient_industry", "") if additional_context else "",
+            "sender_name": business_profile.get("company_name", ""),
+            "value_proposition": business_profile.get("value_proposition", ""),
+            "elevator_pitch": business_profile.get("elevator_pitch", ""),
+        }
+
+        # Add pain point if available
+        if intelligence["pain_points"]:
+            context["pain_point"] = intelligence["pain_points"][0]
+
+        # Add talking points to context
+        if intelligence["talking_points"]:
+            context["value_insight"] = intelligence["talking_points"][0]
+
+        # Add additional context
+        if additional_context:
+            context.update(additional_context)
+
+        # Compose the email
+        email_draft = self.compose_sequence_email(
+            stage=email_type,
+            context=context,
+            personalization_level=PersonalizationLevel.MEDIUM
+        )
+
+        return {
+            "draft": asdict(email_draft),
+            "intelligence": intelligence,
+            "context_used": context
+        }
+
     def analyze_email_quality(self, email: EmailDraft) -> Dict[str, Any]:
         """
         Analyze email quality and provide improvement suggestions.

@@ -19,9 +19,10 @@
             fields: [
                 { key: 'company_name', label: 'Company Name', type: 'text', placeholder: 'Your Company Name' },
                 { key: 'company_website', label: 'Website', type: 'url', placeholder: 'https://www.example.com' },
-                { key: 'industry', label: 'Industry', type: 'select', options: [
-                    'Agriculture', 'Manufacturing', 'Technology', 'Healthcare', 'Finance',
-                    'Retail', 'Construction', 'Energy', 'Transportation', 'Education', 'Other'
+                { key: 'industry', label: 'Industry', type: 'industry-select', options: [
+                    'Agriculture', 'Manufacturing', 'Technology/SaaS', 'Healthcare', 'Financial Services',
+                    'Retail/E-commerce', 'Professional Services', 'Construction', 'Education',
+                    'Real Estate', 'Hospitality', 'Logistics/Transportation', 'Nonprofit', 'Other'
                 ]},
                 { key: 'company_size', label: 'Company Size', type: 'select', options: [
                     '1-10', '11-50', '51-200', '201-500', '501-1000', '1000+'
@@ -143,9 +144,14 @@
         `;
 
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
+            const headers = {};
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
             const response = await fetch('/api/sales-dashboard/business-profile', {
-                headers: { 'Authorization': `Bearer ${token}` }
+                headers: headers,
+                credentials: 'include'
             });
 
             if (response.ok) {
@@ -276,6 +282,26 @@
                         onchange="markProfileChanged()"
                         rows="3"
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">${escapeHtml(value || '')}</textarea>
+                `;
+                break;
+
+            case 'industry-select':
+                // Special handling for industry dropdown with auto-populate
+                const industryOptionsHtml = (field.options || []).map(opt =>
+                    `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`
+                ).join('');
+                inputHtml = `
+                    <div class="space-y-2">
+                        <select id="${id}" onchange="handleIndustryChange(this.value)"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            <option value="">Select...</option>
+                            ${industryOptionsHtml}
+                        </select>
+                        <p class="text-xs text-gray-500">
+                            <i class="fas fa-magic mr-1"></i>
+                            Selecting an industry will auto-populate decision makers, objections, and pain points
+                        </p>
+                    </div>
                 `;
                 break;
 
@@ -569,6 +595,133 @@
         hasChanges = true;
     };
 
+    // Industry auto-populate - only fills EMPTY fields (doesn't override scraped data)
+    window.handleIndustryChange = async function(industry) {
+        markProfileChanged();
+
+        if (!industry || industry === 'Other') {
+            return; // No template for "Other"
+        }
+
+        // Check which fields are empty and could benefit from template data
+        const emptyDecisionMakers = !businessProfile.decision_makers || businessProfile.decision_makers.length === 0;
+        const emptyObjections = !businessProfile.common_objections || businessProfile.common_objections.length === 0;
+        const emptyPainPoints = !businessProfile.customer_pain_points || businessProfile.customer_pain_points.length === 0;
+        const emptyCompanySizes = !businessProfile.target_company_sizes || businessProfile.target_company_sizes.length === 0;
+        const emptyTargetIndustries = !businessProfile.target_industries || businessProfile.target_industries.length === 0;
+        const emptySalesCycle = !businessProfile.sales_cycle_length;
+
+        // If all fields already have data, don't offer to populate
+        if (!emptyDecisionMakers && !emptyObjections && !emptyPainPoints && !emptyCompanySizes && !emptyTargetIndustries && !emptySalesCycle) {
+            return; // All fields already have data (likely from scraping)
+        }
+
+        // Build a list of what will be populated
+        const willPopulate = [];
+        if (emptyDecisionMakers) willPopulate.push('decision makers');
+        if (emptyObjections) willPopulate.push('objections');
+        if (emptyPainPoints) willPopulate.push('pain points');
+        if (emptyCompanySizes) willPopulate.push('target company sizes');
+        if (emptyTargetIndustries) willPopulate.push('target industries');
+        if (emptySalesCycle) willPopulate.push('sales cycle');
+
+        // Ask user if they want to auto-populate the empty fields
+        const proceed = confirm(
+            `Would you like to auto-populate the following empty fields based on the ${industry} industry template?\n\n` +
+            `- ${willPopulate.join('\n- ')}\n\n` +
+            `Fields with existing data (e.g., from website scraping) will NOT be changed.`
+        );
+        if (!proceed) return;
+
+        // Show loading indicator
+        const industrySelect = document.getElementById('bp-industry');
+        if (industrySelect) {
+            industrySelect.disabled = true;
+        }
+
+        try {
+            const token = localStorage.getItem('authToken');
+            const headers = {};
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            const response = await fetch(`/api/sales-dashboard/industry-templates/${encodeURIComponent(industry)}`, {
+                headers: headers,
+                credentials: 'include'
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                const template = data.template;
+
+                if (template) {
+                    let fieldsPopulated = 0;
+
+                    // Only populate decision makers if EMPTY
+                    if (emptyDecisionMakers && template.decision_makers && template.decision_makers.length > 0) {
+                        businessProfile.decision_makers = [...template.decision_makers];
+                        fieldsPopulated++;
+                    }
+
+                    // Only populate common objections if EMPTY
+                    if (emptyObjections && template.common_objections && template.common_objections.length > 0) {
+                        businessProfile.common_objections = [...template.common_objections];
+                        fieldsPopulated++;
+                    }
+
+                    // Only populate pain points if EMPTY
+                    if (emptyPainPoints && template.customer_pain_points && template.customer_pain_points.length > 0) {
+                        businessProfile.customer_pain_points = [...template.customer_pain_points];
+                        fieldsPopulated++;
+                    }
+
+                    // Only populate target company sizes if EMPTY
+                    if (emptyCompanySizes && template.target_company_sizes && template.target_company_sizes.length > 0) {
+                        businessProfile.target_company_sizes = [...template.target_company_sizes];
+                        fieldsPopulated++;
+                    }
+
+                    // Only populate target industries if EMPTY
+                    if (emptyTargetIndustries && template.suggested_target_industries && template.suggested_target_industries.length > 0) {
+                        businessProfile.target_industries = [...template.suggested_target_industries];
+                        fieldsPopulated++;
+                    }
+
+                    // Only populate sales cycle hint if EMPTY
+                    if (emptySalesCycle && template.sales_cycle_hint) {
+                        // Map hint to actual value
+                        const cycleMap = {
+                            'short': '1-2 weeks',
+                            'medium': '1-2 months',
+                            'long': '3-6 months'
+                        };
+                        businessProfile.sales_cycle_length = cycleMap[template.sales_cycle_hint] || '';
+                        fieldsPopulated++;
+                    }
+
+                    if (fieldsPopulated > 0) {
+                        hasChanges = true;
+                        renderBusinessProfile();
+
+                        showNotification(
+                            `Populated ${fieldsPopulated} empty field(s) from ${industry} template. Existing data was preserved.`,
+                            'success'
+                        );
+                    }
+                }
+            } else {
+                console.warn(`No template found for industry: ${industry}`);
+            }
+        } catch (error) {
+            console.error('Error fetching industry template:', error);
+        } finally {
+            if (industrySelect) {
+                industrySelect.disabled = false;
+            }
+        }
+    };
+
     // Tags
     window.handleTagKeypress = function(event, fieldKey) {
         if (event.key === 'Enter') {
@@ -737,13 +890,15 @@
         const profileData = collectProfileData();
 
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
             const response = await fetch('/api/sales-dashboard/business-profile', {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: headers,
+                credentials: 'include',
                 body: JSON.stringify(profileData)
             });
 
@@ -847,18 +1002,22 @@
         `;
 
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
             const response = await fetch('/api/sales-dashboard/scrape-profile', {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: headers,
+                credentials: 'include',  // Include cookies for auth fallback
                 body: JSON.stringify({ website_url: url })
             });
 
             if (response.ok) {
                 const result = await response.json();
+                // Store the original URL for company_website field
+                result.profile_data._source_url = url;
                 showQuickSetupReview(result.profile_data);
             } else {
                 const error = await response.json();
@@ -885,6 +1044,7 @@
         const content = document.getElementById('quick-setup-content');
 
         const fieldsToShow = [
+            { key: '_source_url', label: 'Company Website' },
             { key: 'company_name', label: 'Company Name' },
             { key: 'industry', label: 'Industry' },
             { key: 'elevator_pitch', label: 'Elevator Pitch' },
@@ -937,12 +1097,46 @@
         const data = window._quickSetupData;
         if (!data) return;
 
+        // Ensure businessProfile is an object
+        if (!businessProfile) {
+            businessProfile = {};
+        }
+
+        // Field mapping from AI extraction to database schema
+        const fieldMappings = {
+            'target_decision_makers': 'decision_makers',
+            'solutions_to_pain_points': 'solutions_offered',
+            'suggested_target_industries': 'target_industries',
+            'suggested_target_titles': 'target_job_titles'
+        };
+
+        // Transform competitors format: our_advantage -> differentiator
+        if (data.competitors && Array.isArray(data.competitors)) {
+            data.competitors = data.competitors.map(c => ({
+                name: c.name,
+                differentiator: c.our_advantage || c.differentiator || ''
+            }));
+        }
+
+        // Auto-fill company_website from the source URL
+        if (data._source_url && !businessProfile.company_website) {
+            businessProfile.company_website = data._source_url;
+        }
+
         // Merge with existing profile
         for (const [key, value] of Object.entries(data)) {
             if (value !== null && value !== undefined && !key.startsWith('_')) {
-                // Only overwrite if existing value is empty/null
-                if (!businessProfile[key]) {
-                    businessProfile[key] = value;
+                // Apply field mapping if exists
+                const targetKey = fieldMappings[key] || key;
+
+                // Only overwrite if existing value is empty/null/empty array
+                const existingValue = businessProfile[targetKey];
+                const isEmpty = !existingValue ||
+                    (Array.isArray(existingValue) && existingValue.length === 0) ||
+                    (typeof existingValue === 'object' && Object.keys(existingValue).length === 0);
+
+                if (isEmpty) {
+                    businessProfile[targetKey] = value;
                 }
             }
         }

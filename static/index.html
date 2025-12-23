@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- VERSION: 2025-12-22-v2 SAIG-CONTEXT-INDICATOR -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -699,8 +700,21 @@
                     <i class="fas fa-times"></i>
                 </button>
             </div>
-            
-            <div id="chat-messages" class="overflow-y-auto p-4 space-y-3" style="height: calc(100% - 120px);">
+
+            <!-- Email Context Indicator -->
+            <div id="saig-email-context" class="hidden px-3 py-2 bg-blue-50 border-b border-blue-100 text-sm">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2 overflow-hidden">
+                        <i class="fas fa-envelope text-blue-500 flex-shrink-0"></i>
+                        <span class="text-blue-700 truncate" id="saig-context-email-subject">No email selected</span>
+                    </div>
+                    <button onclick="clearSaigEmailContext()" class="text-blue-400 hover:text-blue-600 flex-shrink-0 ml-2" title="Clear selection">
+                        <i class="fas fa-times-circle"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div id="chat-messages" class="overflow-y-auto p-4 space-y-3" style="height: calc(100% - 160px);">
                 <div class="bg-gray-100 rounded-lg p-3 max-w-[80%]">
                     <p class="text-sm">Hi! I'm SAIG, your email assistant. How can I help you today?</p>
                 </div>
@@ -2045,7 +2059,22 @@
                                     </div>
                                 ` : ''}
                             </div>
-                            
+
+                            <!-- Smart Suggestions Section -->
+                            <div id="smart-suggestions-section" class="mb-4 border rounded-lg overflow-hidden bg-gradient-to-r from-purple-50 to-blue-50">
+                                <div class="p-3 flex items-center justify-between border-b bg-white bg-opacity-50">
+                                    <span class="font-semibold text-purple-700 text-sm">
+                                        <i class="fas fa-magic mr-2"></i>Smart Replies
+                                    </span>
+                                    <span id="suggestions-loading" class="text-xs text-gray-500">
+                                        <i class="fas fa-spinner fa-spin mr-1"></i>Loading...
+                                    </span>
+                                </div>
+                                <div id="suggestions-list" class="p-3 flex flex-wrap gap-2">
+                                    <!-- Suggestions will be loaded here -->
+                                </div>
+                            </div>
+
                             <!-- Email content -->
                             <div class="prose max-w-none" id="modal-email-content">
                                 <!-- Content will be inserted here -->
@@ -2053,19 +2082,50 @@
                         </div>
                         
                         <!-- Modal Footer -->
-                        <div class="border-t px-6 py-4 flex flex-wrap gap-3">
-                            <button onclick="replyToEmailFromModal('${email.id}')" class="gradient-bg text-white px-4 py-2 rounded-lg hover:opacity-90">
-                                <i class="fas fa-reply mr-2"></i>Reply
-                            </button>
-                            <button onclick="forwardEmailFromModal('${email.id}')" class="px-4 py-2 rounded-lg hover:opacity-90" style="background-color: #5fa55f; color: white;">
-                                <i class="fas fa-share mr-2"></i>Forward
-                            </button>
-                            <button onclick="createActionFromEmailModal('${email.id}')" class="px-4 py-2 rounded-lg hover:opacity-90" style="border: 1px solid #7fc97f; color: #7fc97f; background-color: rgba(127, 201, 127, 0.1);">
-                                <i class="fas fa-tasks mr-2"></i>Create Action
-                            </button>
-                            <button onclick="closeEmailModal()" class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
-                                Close
-                            </button>
+                        <div class="border-t px-6 py-4">
+                            <!-- Main Actions -->
+                            <div class="flex flex-wrap gap-3 mb-3">
+                                <button onclick="replyToEmailFromModal('${email.id}')" class="gradient-bg text-white px-4 py-2 rounded-lg hover:opacity-90">
+                                    <i class="fas fa-reply mr-2"></i>Reply
+                                </button>
+                                <button onclick="forwardEmailFromModal('${email.id}')" class="px-4 py-2 rounded-lg hover:opacity-90" style="background-color: #5fa55f; color: white;">
+                                    <i class="fas fa-share mr-2"></i>Forward
+                                </button>
+                                <button onclick="createActionFromEmailModal('${email.id}')" class="px-4 py-2 rounded-lg hover:opacity-90" style="border: 1px solid #7fc97f; color: #7fc97f; background-color: rgba(127, 201, 127, 0.1);">
+                                    <i class="fas fa-tasks mr-2"></i>Create Action
+                                </button>
+                                <button onclick="saigReplyFromModal('${email.id}')" class="px-4 py-2 rounded-lg hover:opacity-90" style="background-color: #7fc97f; color: white;">
+                                    <i class="fas fa-leaf mr-2"></i>SAIG Reply
+                                </button>
+                                <button onclick="closeEmailModal()" class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+                                    Close
+                                </button>
+                            </div>
+
+                            <!-- Quick Reply Buttons -->
+                            <div class="pt-3 border-t">
+                                <p class="text-sm text-gray-500 mb-2"><i class="fas fa-bolt mr-1"></i>Quick Reply:</p>
+                                <div class="flex flex-wrap gap-2">
+                                    <button onclick="quickReply('${email.id}', 'accept')" class="quick-reply-btn px-3 py-1.5 text-sm rounded-lg bg-green-100 text-green-700 hover:bg-green-200 transition-colors">
+                                        <i class="fas fa-check mr-1"></i>Accept
+                                    </button>
+                                    <button onclick="quickReply('${email.id}', 'decline')" class="quick-reply-btn px-3 py-1.5 text-sm rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors">
+                                        <i class="fas fa-times mr-1"></i>Decline
+                                    </button>
+                                    <button onclick="quickReply('${email.id}', 'schedule_call')" class="quick-reply-btn px-3 py-1.5 text-sm rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors">
+                                        <i class="fas fa-phone mr-1"></i>Schedule Call
+                                    </button>
+                                    <button onclick="quickReply('${email.id}', 'acknowledge')" class="quick-reply-btn px-3 py-1.5 text-sm rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 transition-colors">
+                                        <i class="fas fa-thumbs-up mr-1"></i>Acknowledge
+                                    </button>
+                                    <button onclick="quickReply('${email.id}', 'follow_up')" class="quick-reply-btn px-3 py-1.5 text-sm rounded-lg bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors">
+                                        <i class="fas fa-clock mr-1"></i>Follow Up
+                                    </button>
+                                    <button id="voice-command-btn" onclick="toggleVoiceCommand()" class="quick-reply-btn px-3 py-1.5 text-sm rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors" title="Voice command">
+                                        <i class="fas fa-microphone mr-1"></i>Voice
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2128,9 +2188,193 @@
                 }
             };
             document.addEventListener('keydown', escHandler);
-            
+
             // Store email for modal actions
             window.modalEmail = email;
+
+            // Set email context for SAIG
+            if (typeof setSelectedEmailForSAIG === 'function') {
+                setSelectedEmailForSAIG(email);
+            }
+
+            // Load smart suggestions
+            loadSmartSuggestions(email.id);
+        }
+
+        // Load and display smart reply suggestions
+        async function loadSmartSuggestions(emailId) {
+            const loadingEl = document.getElementById('suggestions-loading');
+            const listEl = document.getElementById('suggestions-list');
+
+            if (!listEl) return;
+
+            try {
+                const response = await fetch(`/api/emails/${emailId}/suggestions`, {
+                    headers: authToken !== 'session' ? {
+                        'Authorization': `Bearer ${authToken}`
+                    } : {},
+                    credentials: 'include'
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to load suggestions');
+                }
+
+                const data = await response.json();
+
+                // Hide loading indicator
+                if (loadingEl) loadingEl.classList.add('hidden');
+
+                // Render suggestions
+                if (data.suggestions && data.suggestions.length > 0) {
+                    listEl.innerHTML = data.suggestions.map((suggestion, index) => `
+                        <button onclick="useSuggestion(${index})"
+                                class="suggestion-chip px-3 py-2 text-sm rounded-lg border transition-all hover:shadow-md"
+                                style="background-color: ${getIntentColor(suggestion.intent)}; border-color: ${getIntentBorderColor(suggestion.intent)};"
+                                title="${suggestion.text.replace(/"/g, '&quot;').substring(0, 100)}...">
+                            <i class="fas ${getIntentIcon(suggestion.intent)} mr-1"></i>
+                            ${getIntentLabel(suggestion.intent)}
+                        </button>
+                    `).join('');
+
+                    // Store suggestions for use
+                    window.smartSuggestions = data.suggestions;
+                } else {
+                    listEl.innerHTML = '<span class="text-sm text-gray-500">No suggestions available</span>';
+                }
+
+            } catch (error) {
+                console.error('Error loading suggestions:', error);
+                if (loadingEl) loadingEl.classList.add('hidden');
+                if (listEl) listEl.innerHTML = '<span class="text-sm text-gray-400">Could not load suggestions</span>';
+            }
+        }
+
+        // Helper functions for suggestion display
+        function getIntentColor(intent) {
+            const colors = {
+                'accept': '#dcfce7',
+                'decline': '#fee2e2',
+                'schedule': '#dbeafe',
+                'defer': '#fef3c7',
+                'question': '#f3e8ff',
+                'acknowledge': '#fef9c3'
+            };
+            return colors[intent] || '#f3f4f6';
+        }
+
+        function getIntentBorderColor(intent) {
+            const colors = {
+                'accept': '#86efac',
+                'decline': '#fca5a5',
+                'schedule': '#93c5fd',
+                'defer': '#fcd34d',
+                'question': '#d8b4fe',
+                'acknowledge': '#fde047'
+            };
+            return colors[intent] || '#e5e7eb';
+        }
+
+        function getIntentIcon(intent) {
+            const icons = {
+                'accept': 'fa-check',
+                'decline': 'fa-times',
+                'schedule': 'fa-calendar',
+                'defer': 'fa-clock',
+                'question': 'fa-question',
+                'acknowledge': 'fa-thumbs-up'
+            };
+            return icons[intent] || 'fa-reply';
+        }
+
+        function getIntentLabel(intent) {
+            const labels = {
+                'accept': 'Accept',
+                'decline': 'Decline',
+                'schedule': 'Schedule',
+                'defer': 'Defer',
+                'question': 'Answer',
+                'acknowledge': 'Acknowledge'
+            };
+            return labels[intent] || 'Reply';
+        }
+
+        // Use a smart suggestion
+        window.useSuggestion = function(index) {
+            if (!window.smartSuggestions || !window.smartSuggestions[index]) return;
+
+            const suggestion = window.smartSuggestions[index];
+            const email = window.modalEmail;
+
+            if (!email) return;
+
+            // Store original content
+            const modalContent = document.getElementById('modal-email-content');
+            if (modalContent && !window.modalOriginalContent) {
+                window.modalOriginalContent = modalContent.innerHTML;
+            }
+
+            // Get subject
+            let subject = email.subject || '';
+            if (!subject.startsWith('Re:')) {
+                subject = `Re: ${subject}`;
+            }
+
+            // Get recipient
+            let recipient = email.sender;
+            if (recipient && recipient.includes('<')) {
+                const match = recipient.match(/<([^>]+)>/);
+                if (match) recipient = match[1];
+            }
+
+            // Store the reply data
+            window.saigModalReply = {
+                to: recipient,
+                subject: subject,
+                body: suggestion.text,
+                emailId: email.id
+            };
+
+            // Show in the modal (replace content with editable reply)
+            if (modalContent) {
+                modalContent.innerHTML = `
+                    <div id="saig-reply-section" class="space-y-4">
+                        <div class="flex items-center justify-between border-b pb-3 mb-4">
+                            <h3 class="text-lg font-semibold text-gray-800 flex items-center">
+                                <i class="fas fa-magic text-purple-600 mr-2"></i>
+                                Smart Reply
+                            </h3>
+                            <button onclick="cancelSaigReplyInModal()" class="text-gray-500 hover:text-gray-700">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                        </div>
+
+                        <div id="saig-modal-preview" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">To:</label>
+                                <div id="saig-modal-to" class="px-3 py-2 bg-gray-50 rounded-lg border text-gray-800">${recipient}</div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Subject:</label>
+                                <div id="saig-modal-subject" class="px-3 py-2 bg-gray-50 rounded-lg border text-gray-800">${subject}</div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Message (editable):</label>
+                                <textarea id="saig-modal-body" class="w-full px-3 py-2 bg-white rounded-lg border text-gray-800 min-h-[150px] max-h-[300px] resize-y focus:ring-2 focus:ring-green-500 focus:border-green-500">${suggestion.text}</textarea>
+                            </div>
+
+                            <div class="flex flex-wrap gap-3 pt-4 border-t">
+                                <button onclick="sendSaigReplyFromModal('${email.id}')" id="saig-modal-send-btn" class="px-4 py-2 rounded-lg text-white hover:opacity-90" style="background-color: #7fc97f;">
+                                    <i class="fas fa-paper-plane mr-2"></i>Send Reply
+                                </button>
+                                <button onclick="cancelSaigReplyInModal()" class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+                                    <i class="fas fa-times mr-2"></i>Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
         }
         
         // Function to close email modal
@@ -2167,7 +2411,497 @@
             closeEmailModal();
             createActionFromEmail(emailId);
         }
-        
+
+        window.saigReplyFromModal = async function(emailId) {
+            // Don't close the modal - show reply section within it
+            try {
+                // Find email in loaded emails or fetch it
+                let email = allLoadedEmails.find(e => e.id === emailId);
+                if (!email) {
+                    const response = await fetch(`/api/emails/${emailId}`, {
+                        headers: authToken !== 'session' ? {
+                            'Authorization': `Bearer ${authToken}`
+                        } : {},
+                        credentials: 'include'
+                    });
+                    if (response.ok) {
+                        email = await response.json();
+                        allLoadedEmails.push(email);
+                    } else {
+                        showNotification('Failed to load email for SAIG reply', 'error');
+                        return;
+                    }
+                }
+
+                // Ensure it's in the emails array
+                if (!emails.find(e => e.id === emailId)) {
+                    emails.push(email);
+                }
+
+                // Get the modal content area
+                const modalContent = document.getElementById('modal-email-content');
+                if (!modalContent) {
+                    showNotification('Modal not found', 'error');
+                    return;
+                }
+
+                // Store original content
+                if (!window.modalOriginalContent) {
+                    window.modalOriginalContent = modalContent.innerHTML;
+                }
+
+                // Show loading state in the modal
+                modalContent.innerHTML = `
+                    <div id="saig-reply-section" class="space-y-4">
+                        <div class="flex items-center justify-between border-b pb-3 mb-4">
+                            <h3 class="text-lg font-semibold text-gray-800 flex items-center">
+                                <i class="fas fa-leaf text-green-600 mr-2"></i>
+                                SAIG Smart Reply
+                            </h3>
+                            <button onclick="cancelSaigReplyInModal()" class="text-gray-500 hover:text-gray-700">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                        </div>
+
+                        <div id="saig-modal-loading" class="text-center py-8">
+                            <i class="fas fa-spinner fa-spin text-4xl text-green-600 mb-4"></i>
+                            <p class="text-gray-600">SAIG is analyzing the email and generating a smart reply...</p>
+                        </div>
+
+                        <div id="saig-modal-preview" class="hidden space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">To:</label>
+                                <div id="saig-modal-to" class="px-3 py-2 bg-gray-50 rounded-lg border text-gray-800"></div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Subject:</label>
+                                <div id="saig-modal-subject" class="px-3 py-2 bg-gray-50 rounded-lg border text-gray-800"></div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Message (editable):</label>
+                                <textarea id="saig-modal-body" class="w-full px-3 py-2 bg-white rounded-lg border text-gray-800 min-h-[150px] max-h-[300px] resize-y focus:ring-2 focus:ring-green-500 focus:border-green-500"></textarea>
+                            </div>
+
+                            <div class="flex flex-wrap gap-3 pt-4 border-t">
+                                <button onclick="sendSaigReplyFromModal('${emailId}')" id="saig-modal-send-btn" class="px-4 py-2 rounded-lg text-white hover:opacity-90" style="background-color: #7fc97f;">
+                                    <i class="fas fa-paper-plane mr-2"></i>Send Reply
+                                </button>
+                                <button onclick="editSaigReplyInModal('${emailId}')" class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+                                    <i class="fas fa-edit mr-2"></i>Edit in Compose
+                                </button>
+                                <button onclick="regenerateSaigReplyInModal('${emailId}')" class="px-4 py-2 rounded-lg border border-green-500 text-green-600 hover:bg-green-50">
+                                    <i class="fas fa-redo mr-2"></i>Regenerate
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                // Generate the SAIG reply
+                await generateSaigReplyInModal(email);
+
+            } catch (error) {
+                console.error('Error setting up SAIG reply:', error);
+                showNotification('Error setting up SAIG reply', 'error');
+            }
+        }
+
+        // Generate SAIG reply within the modal
+        async function generateSaigReplyInModal(email) {
+            const loadingDiv = document.getElementById('saig-modal-loading');
+            const previewDiv = document.getElementById('saig-modal-preview');
+
+            try {
+                // Build the message for SAIG
+                let message = `Please read this email and generate an appropriate, professional reply.
+
+Email Details:
+From: ${email.sender}
+Subject: ${email.subject}
+Content: ${email.body_text || email.snippet}
+
+Generate a thoughtful and contextually appropriate response that:
+1. Acknowledges the sender's message
+2. Addresses any questions or requests
+3. Maintains a professional tone
+4. Includes a proper greeting and closing`;
+
+                // Send message to SAIG for reply generation
+                const response = await fetch('/api/saig/chat', {
+                    method: 'POST',
+                    headers: authToken !== 'session' ? {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    } : {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        message: message,
+                        context: {
+                            email_id: email.id,
+                            selected_email: {
+                                id: email.id,
+                                gmail_id: email.gmail_id,
+                                thread_id: email.thread_id,
+                                subject: email.subject,
+                                sender: email.sender,
+                                sender_name: email.sender_name,
+                                body: email.body_text || email.body_html || email.snippet,
+                                received_at: email.received_at
+                            }
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to generate reply: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+
+                // Extract reply components
+                let replyTo = email.sender;
+                if (replyTo.includes('<')) {
+                    const match = replyTo.match(/<([^>]+)>/);
+                    if (match) replyTo = match[1];
+                }
+                let replySubject = email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`;
+                let replyBody = result.response;
+
+                // Clean up HTML if needed
+                if (result.response.includes('<div')) {
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = result.response;
+                    const replyContent = tempDiv.querySelector('.whitespace-pre-wrap');
+                    if (replyContent) {
+                        replyBody = replyContent.textContent;
+                    }
+                }
+
+                // Store the generated reply
+                window.saigModalReply = {
+                    to: replyTo,
+                    subject: replySubject,
+                    body: replyBody,
+                    emailId: email.id
+                };
+
+                // Hide loading and show preview
+                if (loadingDiv) loadingDiv.classList.add('hidden');
+                if (previewDiv) previewDiv.classList.remove('hidden');
+
+                // Populate the fields
+                document.getElementById('saig-modal-to').textContent = replyTo;
+                document.getElementById('saig-modal-subject').textContent = replySubject;
+                document.getElementById('saig-modal-body').value = replyBody;
+
+                showNotification('SAIG has generated a smart reply!', 'success');
+
+            } catch (error) {
+                console.error('Error generating SAIG reply:', error);
+                if (loadingDiv) {
+                    loadingDiv.innerHTML = `
+                        <div class="text-center py-8">
+                            <i class="fas fa-exclamation-circle text-4xl text-red-500 mb-4"></i>
+                            <p class="text-gray-600 mb-4">Failed to generate reply. Please try again.</p>
+                            <button onclick="regenerateSaigReplyInModal('${email.id}')" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:opacity-90">
+                                <i class="fas fa-redo mr-2"></i>Try Again
+                            </button>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        // Cancel SAIG reply and restore original email content
+        window.cancelSaigReplyInModal = function() {
+            const modalContent = document.getElementById('modal-email-content');
+            if (modalContent && window.modalOriginalContent) {
+                modalContent.innerHTML = window.modalOriginalContent;
+                window.modalOriginalContent = null;
+                window.saigModalReply = null;
+            }
+        }
+
+        // Regenerate SAIG reply
+        window.regenerateSaigReplyInModal = async function(emailId) {
+            const email = allLoadedEmails.find(e => e.id === emailId) || emails.find(e => e.id === emailId);
+            if (email) {
+                // Reset to loading state
+                const loadingDiv = document.getElementById('saig-modal-loading');
+                const previewDiv = document.getElementById('saig-modal-preview');
+                if (loadingDiv) {
+                    loadingDiv.classList.remove('hidden');
+                    loadingDiv.innerHTML = `
+                        <div class="text-center py-8">
+                            <i class="fas fa-spinner fa-spin text-4xl text-green-600 mb-4"></i>
+                            <p class="text-gray-600">Regenerating smart reply...</p>
+                        </div>
+                    `;
+                }
+                if (previewDiv) previewDiv.classList.add('hidden');
+
+                await generateSaigReplyInModal(email);
+            }
+        }
+
+        // Edit the SAIG reply in compose window
+        window.editSaigReplyInModal = function(emailId) {
+            if (!window.saigModalReply) {
+                showNotification('No reply to edit', 'warning');
+                return;
+            }
+
+            closeEmailModal();
+            window.modalOriginalContent = null;
+
+            // Open compose with the generated reply
+            window.composeRecipient = window.saigModalReply.to;
+            window.composeSubject = window.saigModalReply.subject;
+            window.composeBody = window.saigModalReply.body;
+            window.composeReplyToId = emailId;
+
+            showComposeModal();
+        }
+
+        // Send the SAIG reply from within the modal
+        window.sendSaigReplyFromModal = async function(emailId) {
+            // Get body from textarea (allows inline editing)
+            const bodyTextarea = document.getElementById('saig-modal-body');
+            const body = bodyTextarea ? bodyTextarea.value : window.saigModalReply?.body;
+
+            if (!body) {
+                showNotification('Please generate a reply first', 'warning');
+                return;
+            }
+
+            const sendBtn = document.getElementById('saig-modal-send-btn');
+            if (sendBtn) {
+                sendBtn.disabled = true;
+                sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Sending...';
+            }
+
+            try {
+                const response = await fetch('/api/emails/reply', {
+                    method: 'POST',
+                    headers: authToken !== 'session' ? {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    } : {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        email_id: emailId,
+                        body: body,
+                        reply_all: false
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to send reply: ${response.statusText}`);
+                }
+
+                showNotification('Reply sent successfully!', 'success');
+                closeEmailModal();
+                window.modalOriginalContent = null;
+                window.saigModalReply = null;
+
+                // Refresh emails
+                if (typeof loadEmails === 'function') {
+                    loadEmails();
+                }
+
+            } catch (error) {
+                console.error('Error sending reply:', error);
+                showNotification(error.message || 'Failed to send reply', 'error');
+
+                if (sendBtn) {
+                    sendBtn.disabled = false;
+                    sendBtn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Send Reply';
+                }
+            }
+        }
+
+        // Quick Reply functionality
+        window.quickReply = async function(emailId, actionType) {
+            const email = allLoadedEmails.find(e => e.id === emailId) || emails.find(e => e.id === emailId);
+            if (!email) {
+                showNotification('Email not found', 'error');
+                return;
+            }
+
+            // Store original content
+            const modalContent = document.getElementById('modal-email-content');
+            if (!modalContent) {
+                showNotification('Modal not found', 'error');
+                return;
+            }
+
+            if (!window.modalOriginalContent) {
+                window.modalOriginalContent = modalContent.innerHTML;
+            }
+
+            // Show loading state
+            modalContent.innerHTML = `
+                <div id="quick-reply-section" class="space-y-4">
+                    <div class="flex items-center justify-between border-b pb-3 mb-4">
+                        <h3 class="text-lg font-semibold text-gray-800 flex items-center">
+                            <i class="fas fa-bolt text-yellow-500 mr-2"></i>
+                            Quick Reply: ${actionType.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                        </h3>
+                        <button onclick="cancelSaigReplyInModal()" class="text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                    </div>
+
+                    <div id="quick-reply-loading" class="text-center py-8">
+                        <i class="fas fa-spinner fa-spin text-4xl text-green-600 mb-4"></i>
+                        <p class="text-gray-600">Generating quick reply...</p>
+                    </div>
+
+                    <div id="quick-reply-preview" class="hidden space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">To:</label>
+                            <div id="quick-reply-to" class="px-3 py-2 bg-gray-50 rounded-lg border text-gray-800"></div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Subject:</label>
+                            <div id="quick-reply-subject" class="px-3 py-2 bg-gray-50 rounded-lg border text-gray-800"></div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Message:</label>
+                            <textarea id="quick-reply-body" class="w-full px-3 py-2 bg-white rounded-lg border text-gray-800 min-h-[150px] max-h-[300px] resize-y focus:ring-2 focus:ring-green-500 focus:border-green-500"></textarea>
+                        </div>
+
+                        <div class="flex flex-wrap gap-3 pt-4 border-t">
+                            <button onclick="sendQuickReply('${emailId}')" id="quick-reply-send-btn" class="px-4 py-2 rounded-lg text-white hover:opacity-90" style="background-color: #7fc97f;">
+                                <i class="fas fa-paper-plane mr-2"></i>Send Now
+                            </button>
+                            <button onclick="cancelSaigReplyInModal()" class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+                                <i class="fas fa-times mr-2"></i>Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            try {
+                // Call the quick reply API
+                const response = await fetch('/api/saig/quick-reply', {
+                    method: 'POST',
+                    headers: authToken !== 'session' ? {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    } : {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        email_id: emailId,
+                        action_type: actionType
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to generate quick reply');
+                }
+
+                const result = await response.json();
+
+                // Store the reply data
+                window.quickReplyData = {
+                    to: result.recipient,
+                    subject: result.subject,
+                    body: result.reply_text,
+                    emailId: emailId
+                };
+
+                // Hide loading, show preview
+                document.getElementById('quick-reply-loading').classList.add('hidden');
+                document.getElementById('quick-reply-preview').classList.remove('hidden');
+
+                // Populate fields
+                document.getElementById('quick-reply-to').textContent = result.recipient;
+                document.getElementById('quick-reply-subject').textContent = result.subject;
+                document.getElementById('quick-reply-body').value = result.reply_text;
+
+            } catch (error) {
+                console.error('Error generating quick reply:', error);
+                const loadingDiv = document.getElementById('quick-reply-loading');
+                if (loadingDiv) {
+                    loadingDiv.innerHTML = `
+                        <div class="text-center py-8">
+                            <i class="fas fa-exclamation-circle text-4xl text-red-500 mb-4"></i>
+                            <p class="text-gray-600 mb-4">Failed to generate reply. Please try again.</p>
+                            <button onclick="quickReply('${emailId}', '${actionType}')" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:opacity-90">
+                                <i class="fas fa-redo mr-2"></i>Try Again
+                            </button>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        // Send quick reply
+        window.sendQuickReply = async function(emailId) {
+            const bodyTextarea = document.getElementById('quick-reply-body');
+            const body = bodyTextarea ? bodyTextarea.value : window.quickReplyData?.body;
+
+            if (!body) {
+                showNotification('No reply content', 'warning');
+                return;
+            }
+
+            const sendBtn = document.getElementById('quick-reply-send-btn');
+            if (sendBtn) {
+                sendBtn.disabled = true;
+                sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Sending...';
+            }
+
+            try {
+                const response = await fetch('/api/emails/reply', {
+                    method: 'POST',
+                    headers: authToken !== 'session' ? {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    } : {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        email_id: emailId,
+                        body: body,
+                        reply_all: false
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to send reply');
+                }
+
+                showNotification('Reply sent successfully!', 'success');
+                closeEmailModal();
+                window.modalOriginalContent = null;
+                window.quickReplyData = null;
+
+                // Refresh emails
+                if (typeof loadEmails === 'function') {
+                    loadEmails();
+                }
+
+            } catch (error) {
+                console.error('Error sending reply:', error);
+                showNotification(error.message || 'Failed to send reply', 'error');
+
+                if (sendBtn) {
+                    sendBtn.disabled = false;
+                    sendBtn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Send Now';
+                }
+            }
+        }
+
         window.selectEmail = async function(emailId) {
             selectedEmailId = emailId;
             
@@ -2212,6 +2946,11 @@
                 }
             }
             
+            // Set email context for SAIG
+            if (typeof setSelectedEmailForSAIG === 'function') {
+                setSelectedEmailForSAIG(email);
+            }
+
             // Mark as read if unread
             if (!email.is_read) {
                 await markAsRead(emailId);
@@ -2225,7 +2964,7 @@
                 applyCurrentFilter();
                 updateUnreadCount();
             }
-            
+
             // Display email detail
             const detailEl = document.getElementById('email-detail');
             
@@ -5587,17 +6326,36 @@
             }
             
             // Build context including any pending operations and selected email
-            const selectedEmail = selectedEmailId ? emails.find(e => e.id === selectedEmailId) : null;
-            const fullContext = {
-                ...saigContext,
-                ...(selectedEmail ? { 
-                    selected_email: {
+            // Priority 1: Check sessionStorage for email set by SAIG disambiguation UI
+            let selectedEmailContext = null;
+            try {
+                const storedEmail = sessionStorage.getItem('saig_selected_email');
+                if (storedEmail) {
+                    selectedEmailContext = JSON.parse(storedEmail);
+                    console.log('Using email from sessionStorage:', selectedEmailContext.subject);
+                }
+            } catch (e) {
+                console.warn('Could not read email from sessionStorage:', e);
+            }
+
+            // Priority 2: Fall back to selected email in email list
+            if (!selectedEmailContext) {
+                const selectedEmail = selectedEmailId ? emails.find(e => e.id === selectedEmailId) : null;
+                if (selectedEmail) {
+                    selectedEmailContext = {
                         id: selectedEmail.id,
                         subject: selectedEmail.subject,
                         sender: selectedEmail.sender_name || selectedEmail.sender,
-                        date: selectedEmail.received_at
-                    }
-                } : {})
+                        sender_name: selectedEmail.sender_name,
+                        body: selectedEmail.body_text || selectedEmail.body_html || selectedEmail.snippet || '',
+                        received_at: selectedEmail.received_at
+                    };
+                }
+            }
+
+            const fullContext = {
+                ...saigContext,
+                ...(selectedEmailContext ? { selected_email: selectedEmailContext } : {})
             };
             // Send to SAIG
             try {
@@ -7268,7 +8026,208 @@ Generate a thoughtful and contextually appropriate response that:
                 showNotification('Failed to send email', 'error');
             }
         }
-        
+
+        // Send a reply email directly from SAIG chat
+        async function sendReplyEmail(emailId, body, previewId) {
+            try {
+                // Remove the preview if provided
+                if (previewId) {
+                    const preview = document.getElementById(previewId);
+                    if (preview) preview.remove();
+                }
+
+                // Show sending status in SAIG chat
+                addChatMessage('📤 Sending reply...', 'assistant');
+
+                const response = await fetch('/api/emails/reply', {
+                    method: 'POST',
+                    headers: authToken !== 'session' ? {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    } : {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        email_id: emailId,
+                        body: body,
+                        reply_all: false
+                    })
+                });
+
+                if (response.ok) {
+                    addChatMessage('✅ Reply sent successfully! The email has been delivered.', 'assistant');
+                    await loadEmails();
+                    showNotification('Reply sent successfully!', 'success');
+                } else {
+                    const error = await response.json();
+                    addChatMessage(`❌ Failed to send reply: ${error.detail || 'Unknown error'}`, 'assistant');
+                    showNotification('Failed to send reply', 'error');
+                }
+            } catch (error) {
+                console.error('Error sending reply:', error);
+                addChatMessage('❌ Failed to send reply due to connection error.', 'assistant');
+                showNotification('Failed to send reply', 'error');
+            }
+        }
+
+        // Edit a reply draft before sending
+        function editReplyDraft(emailId, subject, body, previewId) {
+            // Remove the preview
+            if (previewId) {
+                const preview = document.getElementById(previewId);
+                if (preview) preview.remove();
+            }
+
+            // Open compose modal with the reply pre-filled
+            const modal = document.getElementById('composeModal');
+            if (modal) {
+                // Get the original email to find the recipient
+                const email = window.SAIGBOX?.state?.allLoadedEmails?.find(e => e.id === emailId);
+                let recipient = '';
+                if (email) {
+                    recipient = email.sender;
+                    // Extract just the email if it contains a name
+                    const match = recipient.match(/<([^>]+)>/);
+                    if (match) recipient = match[1];
+                }
+
+                // Fill in the compose form
+                document.getElementById('composeTo').value = recipient;
+                document.getElementById('composeSubject').value = subject;
+                document.getElementById('composeBody').value = body;
+                document.getElementById('composeCc').value = '';
+
+                modal.classList.remove('hidden');
+                showNotification('Edit your reply and click Send when ready', 'info');
+            }
+        }
+
+        // Send reply from card (reads base64 encoded body from hidden input)
+        async function sendReplyFromCard(emailId, bodyInputId, previewId) {
+            try {
+                // Get the body from the hidden input
+                const bodyInput = document.getElementById(bodyInputId);
+                if (!bodyInput) {
+                    console.error('Body input not found:', bodyInputId);
+                    return;
+                }
+
+                // Decode base64 body
+                const body = atob(bodyInput.value);
+
+                // Remove the preview
+                if (previewId) {
+                    const preview = document.getElementById(previewId);
+                    if (preview) preview.remove();
+                }
+
+                // Show sending status
+                addChatMessage('📤 Sending reply...', 'assistant');
+
+                const response = await fetch('/api/emails/reply', {
+                    method: 'POST',
+                    headers: authToken !== 'session' ? {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    } : {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        email_id: emailId,
+                        body: body,
+                        reply_all: false
+                    })
+                });
+
+                if (response.ok) {
+                    addChatMessage('✅ Reply sent successfully!', 'assistant');
+                    await loadEmails();
+                    showNotification('Reply sent successfully!', 'success');
+                } else {
+                    const error = await response.json();
+                    addChatMessage(`❌ Failed to send: ${error.detail || 'Unknown error'}`, 'assistant');
+                    showNotification('Failed to send reply', 'error');
+                }
+            } catch (error) {
+                console.error('Error sending reply:', error);
+                addChatMessage('❌ Failed to send reply.', 'assistant');
+                showNotification('Failed to send reply', 'error');
+            }
+        }
+
+        // Edit reply from card (reads base64 encoded body from hidden input)
+        function editReplyFromCard(emailId, subject, bodyInputId, previewId) {
+            console.log('editReplyFromCard called:', { emailId, subject, bodyInputId, previewId });
+
+            // Get the body from the hidden input
+            const bodyInput = document.getElementById(bodyInputId);
+            if (!bodyInput) {
+                console.error('Body input not found:', bodyInputId);
+                showNotification('Could not load reply body', 'error');
+                return;
+            }
+
+            // Decode base64 body
+            let body;
+            try {
+                body = atob(bodyInput.value);
+            } catch (e) {
+                console.error('Failed to decode body:', e);
+                showNotification('Could not decode reply body', 'error');
+                return;
+            }
+
+            // Get recipient from sessionStorage (where we stored the selected email)
+            let recipient = '';
+            try {
+                const storedEmail = sessionStorage.getItem('saig_selected_email');
+                if (storedEmail) {
+                    const emailData = JSON.parse(storedEmail);
+                    recipient = emailData.sender || '';
+                    // Extract email address if formatted as "Name <email>"
+                    const match = recipient.match(/<([^>]+)>/);
+                    if (match) recipient = match[1];
+                    console.log('Got recipient from sessionStorage:', recipient);
+                }
+            } catch (e) {
+                console.warn('Could not get recipient from sessionStorage:', e);
+            }
+
+            // Remove the preview card
+            if (previewId) {
+                const preview = document.getElementById(previewId);
+                if (preview) preview.remove();
+            }
+
+            // Open compose modal in plain compose mode (not reply mode, which adds quoted text)
+            showComposeModal();
+
+            // After the modal is created, populate the fields with our data
+            setTimeout(() => {
+                const toField = document.getElementById('composeTo');
+                const subjectField = document.getElementById('composeSubject');
+                const bodyField = document.getElementById('composeBody');
+
+                if (toField) {
+                    toField.value = recipient;
+                    console.log('Set To:', recipient);
+                }
+                if (subjectField) {
+                    subjectField.value = subject;
+                    console.log('Set Subject:', subject);
+                }
+                if (bodyField) {
+                    // composeBody is a contenteditable div, so use innerHTML
+                    bodyField.innerHTML = body.replace(/\n/g, '<br>');
+                    console.log('Set Body:', body.substring(0, 100) + '...');
+                }
+            }, 50);
+
+            showNotification('Edit your reply and click Send when ready', 'info');
+        }
+
         // Utility Functions
         function formatDate(dateString) {
             if (!dateString) return '';
@@ -8369,15 +9328,15 @@ Generate a thoughtful and contextually appropriate response that:
     </script>
 
     <!-- Modular JavaScript (gradual migration from inline code) -->
-    <script src="/static/js/app.js"></script>
-    <script src="/static/js/email.js"></script>
-    <script src="/static/js/saig.js"></script>
-    <script src="/static/js/sales.js?v=20251211"></script>
-    <script src="/static/js/business-profile.js?v=20251217f"></script>
-    <script src="/static/js/company-agent.js?v=20251217"></script>
-    <script src="/static/js/lead-acquisition.js?v=20251217a"></script>
-    <script src="/static/js/actions.js"></script>
-    <script src="/static/js/compose.js"></script>
+    <script src="/static/js/app.js?v=20251222"></script>
+    <script src="/static/js/email.js?v=20251222"></script>
+    <script src="/static/js/saig.js?v=20251222e"></script>
+    <script src="/static/js/sales.js?v=20251222"></script>
+    <script src="/static/js/business-profile.js?v=20251222"></script>
+    <script src="/static/js/company-agent.js?v=20251222"></script>
+    <script src="/static/js/lead-acquisition.js?v=20251222"></script>
+    <script src="/static/js/actions.js?v=20251222"></script>
+    <script src="/static/js/compose.js?v=20251222"></script>
 
     <!-- Trash Select All Fix -->
     <script src="/static/trash-select-fix.js"></script>

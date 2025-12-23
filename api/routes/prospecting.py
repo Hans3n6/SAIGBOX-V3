@@ -14,7 +14,7 @@ from core.database import (
     get_db, User, BusinessProfile, ProspectSource, TargetingCriteria,
     LinkedInConnection, CRMConnection
 )
-from api.routes.emails import get_current_user
+from api.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 

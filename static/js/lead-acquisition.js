@@ -12,6 +12,33 @@
     let linkedInConnections = [];
     let crmConnections = [];
 
+    // Helper function to build auth headers (avoids sending "Bearer null")
+    function getAuthHeaders(includeContentType = false) {
+        const headers = {};
+        const token = localStorage.getItem('authToken');
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        if (includeContentType) {
+            headers['Content-Type'] = 'application/json';
+        }
+        return headers;
+    }
+
+    // Helper function for authenticated fetch with cookie fallback
+    async function authFetch(url, options = {}) {
+        const headers = options.headers || {};
+        const token = localStorage.getItem('authToken');
+        if (token && !headers['Authorization']) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        return fetch(url, {
+            ...options,
+            headers: headers,
+            credentials: 'include'  // Include cookies for auth fallback
+        });
+    }
+
     /**
      * Initialize the Lead Acquisition section in Sales Dashboard
      * Called when Sales Dashboard view is loaded
@@ -158,7 +185,7 @@
         resultsDiv.classList.remove('hidden');
 
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
             const response = await fetch('/api/prospecting/find', {
                 method: 'POST',
                 headers: {
@@ -243,10 +270,7 @@
 
     async function loadRecentSources() {
         try {
-            const token = localStorage.getItem('auth_token');
-            const response = await fetch('/api/prospecting/sources?limit=5', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+            const response = await authFetch('/api/prospecting/sources?limit=5');
             const data = await response.json();
 
             const container = document.getElementById('recent-sources');
@@ -319,10 +343,7 @@
 
     async function loadEnrichmentCredits() {
         try {
-            const token = localStorage.getItem('auth_token');
-            const response = await fetch('/api/prospecting/enrich/credits', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+            const response = await authFetch('/api/prospecting/enrich/credits');
             const data = await response.json();
 
             const container = document.getElementById('enrichment-credits');
@@ -362,7 +383,7 @@
         resultDiv.classList.remove('hidden');
 
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
             const response = await fetch('/api/prospecting/enrich/email', {
                 method: 'POST',
                 headers: {
@@ -408,7 +429,7 @@
         resultDiv.classList.remove('hidden');
 
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
             const response = await fetch('/api/prospecting/enrich/verify', {
                 method: 'POST',
                 headers: {
@@ -491,7 +512,7 @@
         formData.append('file', file);
 
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
             const response = await fetch('/api/prospecting/linkedin/import', {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` },
@@ -514,7 +535,7 @@
 
     async function loadLinkedInConnections(search = '') {
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
             const url = `/api/prospecting/linkedin/connections?limit=50${search ? `&search=${encodeURIComponent(search)}` : ''}`;
             const response = await fetch(url, {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -555,7 +576,7 @@
 
     window.convertToProspect = async function(connectionId) {
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
             const response = await fetch(`/api/prospecting/linkedin/convert/${connectionId}`, {
                 method: 'POST',
                 headers: {
@@ -642,7 +663,7 @@
 
     async function loadCRMConnections() {
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
             const response = await fetch('/api/prospecting/crm/connections', {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
@@ -671,7 +692,7 @@
         }
 
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
             const response = await fetch('/api/prospecting/crm/connect/hubspot', {
                 method: 'POST',
                 headers: {
@@ -696,7 +717,7 @@
 
     window.importFromCRM = async function(provider) {
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
             const response = await fetch(`/api/prospecting/crm/import/${provider}`, {
                 method: 'POST',
                 headers: {
@@ -720,7 +741,7 @@
 
     window.exportToCRM = async function(provider) {
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
             const response = await fetch(`/api/prospecting/crm/export/${provider}`, {
                 method: 'POST',
                 headers: {
@@ -747,7 +768,7 @@
         if (!confirm(`Disconnect ${provider}?`)) return;
 
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
             await fetch(`/api/prospecting/crm/disconnect/${provider}`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -761,7 +782,7 @@
 
     async function loadSyncHistory() {
         try {
-            const token = localStorage.getItem('auth_token');
+            const token = localStorage.getItem('authToken');
             const response = await fetch('/api/prospecting/crm/sync-history?limit=10', {
                 headers: { 'Authorization': `Bearer ${token}` }
             });

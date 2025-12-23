@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, desc, case
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
+import os
 import re
 import json
 import logging
@@ -4214,6 +4215,161 @@ async def update_business_profile(
         logger.error(f"Error saving business profile: {e}")
         db.rollback()
         return {"status": "error", "message": str(e)}
+
+
+@router.get("/industry-templates")
+async def get_industry_templates():
+    """Get all available industry templates"""
+    from core.industry_templates import get_all_industries, INDUSTRY_TEMPLATES
+    return {
+        "industries": get_all_industries(),
+        "templates": INDUSTRY_TEMPLATES
+    }
+
+
+@router.get("/industry-templates/{industry}")
+async def get_industry_template(industry: str):
+    """Get template for a specific industry with auto-populated fields"""
+    from core.industry_templates import get_industry_template as get_template
+
+    template = get_template(industry)
+    if not template:
+        raise HTTPException(status_code=404, detail=f"No template found for industry: {industry}")
+
+    return {
+        "industry": industry,
+        "template": template
+    }
+
+
+@router.post("/sales-intelligence")
+async def get_sales_intelligence(
+    request: Dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get role-specific sales intelligence for email composition.
+
+    Combines industry templates with business profile to provide:
+    - Relevant objections for the recipient's role
+    - Talking points
+    - Pain points to address
+    - Suggested approach/angle
+    - CTA suggestion
+    """
+    from core.smart_composer import SmartComposer
+
+    recipient_role = request.get("recipient_role", "")
+    recipient_industry = request.get("recipient_industry", "")
+
+    if not recipient_role:
+        raise HTTPException(status_code=400, detail="recipient_role is required")
+
+    # Get user's business profile
+    profile = db.query(BusinessProfile).filter(
+        BusinessProfile.user_id == current_user.id
+    ).first()
+
+    if not profile:
+        raise HTTPException(status_code=404, detail="Business profile not found. Please set up your profile first.")
+
+    # Convert profile to dict
+    profile_dict = {
+        "industry": profile.industry,
+        "common_objections": profile.common_objections or [],
+        "customer_pain_points": profile.customer_pain_points or [],
+        "products_services": profile.products_services or [],
+        "key_differentiators": profile.key_differentiators or [],
+        "unique_selling_points": profile.unique_selling_points or [],
+        "value_proposition": profile.value_proposition,
+        "elevator_pitch": profile.elevator_pitch,
+        "company_name": profile.company_name,
+    }
+
+    # Get role-specific intelligence
+    composer = SmartComposer()
+    intelligence = composer.get_role_specific_talking_points(
+        recipient_role=recipient_role,
+        business_profile=profile_dict,
+        recipient_industry=recipient_industry or None
+    )
+
+    return {
+        "success": True,
+        "recipient_role": recipient_role,
+        "intelligence": intelligence
+    }
+
+
+@router.post("/compose-smart-email")
+async def compose_smart_email(
+    request: Dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Compose an email using full sales intelligence.
+
+    Request body:
+    - recipient_email: Email address of recipient
+    - recipient_name: Name of recipient
+    - recipient_role: Job title/role
+    - recipient_company: Company name
+    - recipient_industry: (optional) Industry of recipient's company
+    - email_type: (optional) Type of email (cold_outreach, followup, etc.)
+    """
+    from core.smart_composer import SmartComposer
+
+    recipient_email = request.get("recipient_email", "")
+    recipient_name = request.get("recipient_name", "")
+    recipient_role = request.get("recipient_role", "")
+    recipient_company = request.get("recipient_company", "")
+    recipient_industry = request.get("recipient_industry", "")
+    email_type = request.get("email_type", "cold_outreach")
+
+    if not recipient_email or not recipient_name:
+        raise HTTPException(status_code=400, detail="recipient_email and recipient_name are required")
+
+    # Get user's business profile
+    profile = db.query(BusinessProfile).filter(
+        BusinessProfile.user_id == current_user.id
+    ).first()
+
+    if not profile:
+        raise HTTPException(status_code=404, detail="Business profile not found. Please set up your profile first.")
+
+    # Convert profile to dict
+    profile_dict = {
+        "industry": profile.industry,
+        "common_objections": profile.common_objections or [],
+        "customer_pain_points": profile.customer_pain_points or [],
+        "products_services": profile.products_services or [],
+        "key_differentiators": profile.key_differentiators or [],
+        "unique_selling_points": profile.unique_selling_points or [],
+        "value_proposition": profile.value_proposition,
+        "elevator_pitch": profile.elevator_pitch,
+        "company_name": profile.company_name,
+    }
+
+    # Compose email with intelligence
+    composer = SmartComposer()
+    result = composer.compose_with_intelligence(
+        recipient_email=recipient_email,
+        recipient_name=recipient_name,
+        recipient_role=recipient_role,
+        recipient_company=recipient_company,
+        business_profile=profile_dict,
+        email_type=email_type,
+        additional_context={"recipient_industry": recipient_industry} if recipient_industry else None
+    )
+
+    return {
+        "success": True,
+        "email": result["draft"],
+        "intelligence": result["intelligence"],
+        "context_used": result["context_used"]
+    }
 
 
 @router.post("/scrape-profile")

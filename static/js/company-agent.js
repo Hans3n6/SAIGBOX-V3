@@ -135,12 +135,21 @@ class CompanyAgent {
                         </svg>
                         <span>${this.status.domain || 'Your Company'}</span>
                     </div>
-                    <button id="relearn-btn" class="btn-secondary">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-                        </svg>
-                        Re-learn
-                    </button>
+                    <div class="setup-actions">
+                        <button id="generate-demo-emails-btn" class="btn-primary" style="margin-right: 8px;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;">
+                                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                                <polyline points="22,6 12,13 2,6"/>
+                            </svg>
+                            Generate Demo Emails
+                        </button>
+                        <button id="relearn-btn" class="btn-secondary">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                            </svg>
+                            Re-learn
+                        </button>
+                    </div>
                 </div>
             `;
         }
@@ -161,6 +170,18 @@ class CompanyAgent {
                             <path d="M12 2a3 3 0 0 0-3 3v1H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3V5a3 3 0 0 0-3-3z"/>
                         </svg>
                         Start Learning
+                    </button>
+                </div>
+                <div class="demo-emails-section" style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border-color, #e5e7eb);">
+                    <p style="color: var(--text-muted, #6b7280); font-size: 14px; margin-bottom: 12px;">
+                        Or try the demo with sample sales emails:
+                    </p>
+                    <button id="generate-demo-emails-btn" class="btn-secondary">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;">
+                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                            <polyline points="22,6 12,13 2,6"/>
+                        </svg>
+                        Generate Demo Emails
                     </button>
                 </div>
             </div>
@@ -317,6 +338,12 @@ class CompanyAgent {
         const relearnBtn = document.getElementById('relearn-btn');
         if (relearnBtn) {
             relearnBtn.addEventListener('click', () => this.showRelearnDialog());
+        }
+
+        // Generate demo emails button
+        const generateDemoBtn = document.getElementById('generate-demo-emails-btn');
+        if (generateDemoBtn) {
+            generateDemoBtn.addEventListener('click', () => this.generateDemoEmails());
         }
 
         // Refresh status button (during crawl)
@@ -552,6 +579,59 @@ class CompanyAgent {
                 this.render();
                 this.attachEventListeners();
             });
+        }
+    }
+
+    /**
+     * Generate demo emails based on company knowledge
+     */
+    async generateDemoEmails() {
+        const btn = document.getElementById('generate-demo-emails-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = `
+                <svg class="animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;">
+                    <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+                    <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/>
+                </svg>
+                Generating...
+            `;
+        }
+
+        try {
+            const response = await fetch(`${this.apiBase}/generate-demo-emails`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ count: 15, clear_existing: true })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                this.showToast(`Generated ${data.emails_generated} demo emails! Check your inbox.`, 'success');
+
+                // Refresh inbox if function exists
+                if (typeof window.refreshInbox === 'function') {
+                    window.refreshInbox();
+                }
+            } else {
+                const error = await response.json();
+                this.showToast(error.detail || 'Failed to generate emails', 'error');
+            }
+        } catch (error) {
+            console.error('Generate demo emails error:', error);
+            this.showToast('Failed to generate demo emails', 'error');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = `
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;">
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                        <polyline points="22,6 12,13 2,6"/>
+                    </svg>
+                    Generate Demo Emails
+                `;
+            }
         }
     }
 

@@ -268,3 +268,26 @@ class TrashEmptyResponse(BaseModel):
     deleted_count: int
     success: bool
     message: str
+
+# Quick Reply Models
+class QuickReplyRequest(BaseModel):
+    email_id: str
+    action_type: str  # "accept", "decline", "schedule_call", "acknowledge", "follow_up"
+    custom_note: Optional[str] = None
+
+class QuickReplyResponse(BaseModel):
+    reply_text: str
+    subject: str
+    recipient: str
+    can_send_immediately: bool = True
+
+# Smart Suggestions Models
+class EmailSuggestion(BaseModel):
+    text: str
+    intent: str  # "accept", "decline", "question", "acknowledge", "schedule"
+    tone: str    # "formal", "casual", "professional"
+    confidence: float
+
+class SuggestionsResponse(BaseModel):
+    suggestions: List[EmailSuggestion]
+    email_analysis: Optional[Dict[str, Any]] = None

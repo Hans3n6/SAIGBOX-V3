@@ -78,6 +78,107 @@
     };
 
     /**
+     * Set selected email for SAIG context (used by SAIG Reply feature)
+     */
+    window.setSelectedEmailForSAIG = function(email) {
+        if (!email) return;
+
+        // Store the selected email in SAIG context with full details
+        state.saigContext = state.saigContext || {};
+        state.saigContext.selected_email = {
+            id: email.id,
+            gmail_id: email.gmail_id,      // For Gmail API threading
+            thread_id: email.thread_id,    // For conversation context
+            subject: email.subject,
+            sender: email.sender,
+            sender_name: email.sender_name,
+            recipients: email.recipients || [],
+            body: email.body_text || email.body_html || email.snippet || '',
+            received_at: email.received_at,
+            is_urgent: email.is_urgent,
+            labels: email.labels || []
+        };
+        state.selectedEmailId = email.id;
+
+        // Persist to sessionStorage for cross-component access
+        try {
+            sessionStorage.setItem('saig_selected_email', JSON.stringify(state.saigContext.selected_email));
+            sessionStorage.setItem('saig_selected_email_id', email.id);
+        } catch (e) {
+            console.warn('Could not persist email context to sessionStorage:', e);
+        }
+
+        console.log('SAIG context updated with selected email:', email.subject);
+
+        // Update the context indicator in SAIG chat
+        updateSaigContextIndicator();
+    };
+
+    // Update the SAIG context indicator UI
+    function updateSaigContextIndicator() {
+        const contextDiv = document.getElementById('saig-email-context');
+        const subjectSpan = document.getElementById('saig-context-email-subject');
+
+        if (!contextDiv || !subjectSpan) return;
+
+        const selectedEmail = state.saigContext?.selected_email;
+
+        if (selectedEmail && selectedEmail.subject) {
+            subjectSpan.textContent = selectedEmail.subject;
+            contextDiv.classList.remove('hidden');
+        } else {
+            contextDiv.classList.add('hidden');
+        }
+    }
+
+    // Clear the SAIG email context
+    window.clearSaigEmailContext = function() {
+        state.saigContext = state.saigContext || {};
+        delete state.saigContext.selected_email;
+        state.selectedEmailId = null;
+
+        // Clear from sessionStorage
+        try {
+            sessionStorage.removeItem('saig_selected_email');
+            sessionStorage.removeItem('saig_selected_email_id');
+        } catch (e) {
+            console.warn('Could not clear sessionStorage:', e);
+        }
+
+        // Update UI
+        updateSaigContextIndicator();
+        app.showNotification('Email context cleared', 'info');
+    };
+
+    // Restore context from sessionStorage on load
+    window.restoreSaigContext = function() {
+        try {
+            const savedEmail = sessionStorage.getItem('saig_selected_email');
+            const savedEmailId = sessionStorage.getItem('saig_selected_email_id');
+            if (savedEmail && savedEmailId) {
+                state.saigContext = state.saigContext || {};
+                state.saigContext.selected_email = JSON.parse(savedEmail);
+                state.selectedEmailId = savedEmailId;
+                console.log('SAIG context restored from sessionStorage');
+                // Update UI after restore
+                updateSaigContextIndicator();
+            }
+        } catch (e) {
+            console.warn('Could not restore SAIG context:', e);
+        }
+    };
+
+    // Auto-restore on module load
+    window.restoreSaigContext();
+
+    // Also update indicator when DOM is ready (in case SAIG chat wasn't in DOM yet)
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', updateSaigContextIndicator);
+    } else {
+        setTimeout(updateSaigContextIndicator, 100);
+    }
+
+    /**
      * Add message to chat display
      */
     function addMessageToChat(role, content) {
@@ -252,9 +353,10 @@
         }
 
         try {
-            const response = await app.apiJson(`/api/emails/${emailId}/reply`, {
+            const response = await app.apiJson('/api/emails/reply', {
                 method: 'POST',
                 body: JSON.stringify({
+                    email_id: emailId,
                     body: replyText.value,
                     reply_all: false
                 })
@@ -269,6 +371,49 @@
         } catch (error) {
             console.error('Error sending reply:', error);
             app.showNotification('Error sending reply', 'error');
+        }
+    };
+
+    // ===========================================
+    // Email Reference Disambiguation
+    // ===========================================
+
+    /**
+     * Select an email from disambiguation UI and continue with reply
+     */
+    window.selectEmailForReply = async function(emailId, subject) {
+        console.log('selectEmailForReply called:', emailId, subject);
+
+        // Show loading state
+        app.showNotification('Loading email...', 'info');
+
+        try {
+            // Fetch full email details
+            const response = await app.apiJson(`/api/emails/${emailId}`);
+
+            if (response.ok) {
+                const email = await response.json();
+
+                // Set as selected email for SAIG
+                window.setSelectedEmailForSAIG(email);
+
+                // Notify user
+                app.showNotification(`Selected: ${email.subject || subject}`, 'success');
+
+                // Add message to chat showing selection
+                addMessageToChat('assistant', `<div class="text-sm text-blue-600 mb-2"><i class="fas fa-check-circle mr-2"></i>Selected email: "${email.subject || subject}"</div>`);
+
+                // Now automatically ask SAIG to generate a reply
+                setTimeout(() => {
+                    sendMessage('Please generate a reply to this email');
+                }, 300);
+
+            } else {
+                app.showNotification('Failed to load email', 'error');
+            }
+        } catch (error) {
+            console.error('Error selecting email:', error);
+            app.showNotification('Error loading email', 'error');
         }
     };
 
@@ -296,6 +441,175 @@
             default:
                 sendMessage(action);
         }
+    };
+
+    // ===========================================
+    // Voice Commands
+    // ===========================================
+
+    let recognition = null;
+    let isListening = false;
+
+    /**
+     * Initialize speech recognition
+     */
+    function initSpeechRecognition() {
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+            console.log('Speech recognition not supported');
+            return null;
+        }
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const rec = new SpeechRecognition();
+        rec.continuous = false;
+        rec.interimResults = false;
+        rec.lang = 'en-US';
+
+        rec.onresult = function(event) {
+            const transcript = event.results[0][0].transcript.toLowerCase().trim();
+            console.log('Voice command recognized:', transcript);
+            handleVoiceCommand(transcript);
+        };
+
+        rec.onerror = function(event) {
+            console.error('Speech recognition error:', event.error);
+            isListening = false;
+            updateVoiceButton();
+            if (event.error !== 'no-speech') {
+                app.showNotification('Voice recognition error: ' + event.error, 'error');
+            }
+        };
+
+        rec.onend = function() {
+            isListening = false;
+            updateVoiceButton();
+        };
+
+        return rec;
+    }
+
+    /**
+     * Handle recognized voice commands
+     */
+    function handleVoiceCommand(command) {
+        // Quick reply commands
+        if (command.includes('reply yes') || command.includes('accept')) {
+            if (state.selectedEmailId && typeof quickReply === 'function') {
+                quickReply(state.selectedEmailId, 'accept');
+                app.showNotification('Generating accept reply...', 'info');
+            } else {
+                app.showNotification('Please select an email first', 'warning');
+            }
+            return;
+        }
+
+        if (command.includes('reply no') || command.includes('decline')) {
+            if (state.selectedEmailId && typeof quickReply === 'function') {
+                quickReply(state.selectedEmailId, 'decline');
+                app.showNotification('Generating decline reply...', 'info');
+            } else {
+                app.showNotification('Please select an email first', 'warning');
+            }
+            return;
+        }
+
+        if (command.includes('schedule') || command.includes('call')) {
+            if (state.selectedEmailId && typeof quickReply === 'function') {
+                quickReply(state.selectedEmailId, 'schedule_call');
+                app.showNotification('Generating schedule reply...', 'info');
+            } else {
+                app.showNotification('Please select an email first', 'warning');
+            }
+            return;
+        }
+
+        if (command.includes('acknowledge') || command.includes('got it')) {
+            if (state.selectedEmailId && typeof quickReply === 'function') {
+                quickReply(state.selectedEmailId, 'acknowledge');
+                app.showNotification('Generating acknowledgment...', 'info');
+            } else {
+                app.showNotification('Please select an email first', 'warning');
+            }
+            return;
+        }
+
+        if (command.includes('send it') || command.includes('send now')) {
+            const sendBtn = document.getElementById('saig-modal-send-btn') || document.getElementById('quick-reply-send-btn');
+            if (sendBtn) {
+                sendBtn.click();
+                app.showNotification('Sending...', 'info');
+            } else {
+                app.showNotification('No reply ready to send', 'warning');
+            }
+            return;
+        }
+
+        if (command.includes('cancel') || command.includes('go back')) {
+            if (typeof cancelSaigReplyInModal === 'function') {
+                cancelSaigReplyInModal();
+                app.showNotification('Cancelled', 'info');
+            }
+            return;
+        }
+
+        // General commands - send to SAIG
+        sendMessage(command);
+        app.showNotification('Processing: "' + command + '"', 'info');
+    }
+
+    /**
+     * Update voice button appearance
+     */
+    function updateVoiceButton() {
+        const btn = document.getElementById('voice-command-btn');
+        if (!btn) return;
+
+        if (isListening) {
+            btn.classList.add('listening');
+            btn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
+            btn.title = 'Stop listening';
+        } else {
+            btn.classList.remove('listening');
+            btn.innerHTML = '<i class="fas fa-microphone"></i>';
+            btn.title = 'Start voice command';
+        }
+    }
+
+    /**
+     * Start/stop voice recognition
+     */
+    window.toggleVoiceCommand = function() {
+        if (!recognition) {
+            recognition = initSpeechRecognition();
+        }
+
+        if (!recognition) {
+            app.showNotification('Voice commands not supported in this browser', 'warning');
+            return;
+        }
+
+        if (isListening) {
+            recognition.stop();
+            isListening = false;
+        } else {
+            try {
+                recognition.start();
+                isListening = true;
+                app.showNotification('Listening... Say a command like "reply yes" or "schedule call"', 'info');
+            } catch (e) {
+                console.error('Failed to start recognition:', e);
+                app.showNotification('Failed to start voice recognition', 'error');
+            }
+        }
+
+        updateVoiceButton();
+    };
+
+    /**
+     * Check if voice commands are supported
+     */
+    window.isVoiceSupported = function() {
+        return ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
     };
 
 })(window.SAIGBOX);

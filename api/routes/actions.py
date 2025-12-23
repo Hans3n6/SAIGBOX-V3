@@ -7,7 +7,7 @@ import logging
 from api.auth import get_current_user
 from api.models import *
 from core.database import get_db, User, ActionItem as ActionItemModel, Email
-from core.action_extractor import action_extractor
+from core.action_extractor import action_extractor, ActionableContentChecker
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -331,30 +331,58 @@ async def extract_action_items(
 
 @router.post("/extract-all")
 async def extract_all_action_items(
+    min_score: int = Query(default=2, ge=1, le=10, description="Minimum actionable content score (1-10)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Extract action items from all urgent emails that haven't been processed yet"""
-    # Find urgent emails without auto-created actions
-    urgent_emails = db.query(Email).filter(
+    """
+    Extract action items from emails with actionable content.
+
+    Uses smart content detection (keywords, questions, deadlines) instead of
+    just looking at 'urgent' flag. Adjust min_score for sensitivity:
+    - 1: Very sensitive (more emails, more false positives)
+    - 2: Balanced (default, good for most cases)
+    - 3+: Conservative (fewer emails, higher precision)
+    """
+    # Find unprocessed emails (not in trash, not already processed)
+    unprocessed_emails = db.query(Email).filter(
         Email.user_id == current_user.id,
-        Email.is_urgent == True,
         Email.auto_actions_created != True,
         Email.deleted_at.is_(None)
     ).all()
 
-    if not urgent_emails:
+    if not unprocessed_emails:
         return {
             "success": True,
-            "message": "No unprocessed urgent emails found",
+            "message": "No unprocessed emails found",
             "emails_processed": 0,
+            "emails_checked": 0,
+            "actions_created": 0
+        }
+
+    # Use content-based checker to filter actionable emails
+    actionable_emails = ActionableContentChecker.get_actionable_emails(
+        unprocessed_emails, min_score=min_score
+    )
+
+    logger.info(
+        f"Content check: {len(actionable_emails)} actionable out of "
+        f"{len(unprocessed_emails)} unprocessed emails (min_score={min_score})"
+    )
+
+    if not actionable_emails:
+        return {
+            "success": True,
+            "message": f"No actionable emails found (checked {len(unprocessed_emails)} emails)",
+            "emails_processed": 0,
+            "emails_checked": len(unprocessed_emails),
             "actions_created": 0
         }
 
     total_actions = 0
     processed_emails = 0
 
-    for email in urgent_emails:
+    for email in actionable_emails:
         try:
             created_items = await action_extractor.create_action_items(
                 db, email, current_user
@@ -374,6 +402,8 @@ async def extract_all_action_items(
         "success": True,
         "message": f"Processed {processed_emails} emails, created {total_actions} action items",
         "emails_processed": processed_emails,
+        "emails_checked": len(unprocessed_emails),
+        "actionable_found": len(actionable_emails),
         "actions_created": total_actions
     }
 
@@ -398,3 +428,55 @@ async def complete_action_item(
     db.commit()
 
     return {"success": True, "message": "Action item completed"}
+
+
+@router.put("/{action_id}/reopen")
+async def reopen_action_item(
+    action_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Reopen a completed action item"""
+    item = db.query(ActionItemModel).filter(
+        ActionItemModel.id == action_id,
+        ActionItemModel.user_id == current_user.id
+    ).first()
+
+    if not item:
+        raise HTTPException(status_code=404, detail="Action item not found")
+
+    item.status = "pending"
+    item.completed_at = None
+    item.updated_at = datetime.utcnow()
+    db.commit()
+
+    return {"success": True, "message": "Action item reopened"}
+
+
+@router.post("/cleanup-orphaned")
+async def cleanup_orphaned_actions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Remove action items that reference deleted/non-existent emails"""
+    # Find action items with email_id that don't have matching emails
+    action_items_with_email = db.query(ActionItemModel).filter(
+        ActionItemModel.user_id == current_user.id,
+        ActionItemModel.email_id.isnot(None)
+    ).all()
+
+    orphaned_count = 0
+    for action in action_items_with_email:
+        # Check if email exists
+        email = db.query(Email).filter(Email.id == action.email_id).first()
+        if not email:
+            db.delete(action)
+            orphaned_count += 1
+
+    db.commit()
+
+    return {
+        "success": True,
+        "orphaned_removed": orphaned_count,
+        "message": f"Removed {orphaned_count} orphaned action items"
+    }
